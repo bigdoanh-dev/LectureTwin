@@ -1,0 +1,12 @@
+{
+  "name": "lecture-twin-ai-demo",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "bash scripts/dev.sh",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend test && cd backend && .venv/bin/python -m pytest tests -q",
+    "media": "backend/.venv/bin/python scripts/build_sample_media.py"
+  }
+}
