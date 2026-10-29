@@ -26,9 +26,8 @@ def public_user(user):
 def issue(user, response):
     token = secrets.token_urlsafe(36)
     expires = (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat()
-    with store.connect() as conn:
-        conn.execute('INSERT INTO sessions VALUES(?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), user['id'], expires))
-    response.set_cookie('lt_session', token, httponly=True, samesite='lax', max_age=28800, path='/api')
+    store.create_session(hashlib.sha256(token.encode()).hexdigest(), user['id'], expires)
+    response.set_cookie('lt_session', token, httponly=True, samesite='lax', max_age=28800, path='/api', secure=bool(os.environ.get('VERCEL')))
     return {'access_token': token, 'user': public_user(user), 'mode': 'DEMO_FALLBACK'}
 
 
@@ -36,8 +35,7 @@ def current_user(authorization: str | None = Header(default=None), lt_session: s
     token = authorization[7:] if authorization and authorization.startswith('Bearer ') else lt_session
     if not token:
         raise HTTPException(401, 'Cần đăng nhập để tiếp tục')
-    with store.connect() as conn:
-        session = conn.execute('SELECT * FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    session = store.get_session(hashlib.sha256(token.encode()).hexdigest())
     if not session or session['expires'] < store.now():
         raise HTTPException(401, 'Phiên đăng nhập đã hết hạn')
     user = store.get('users', session['user_id'])

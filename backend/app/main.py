@@ -2,6 +2,9 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 import hashlib
 import json
+import os
+import shutil
+from urllib.parse import urlsplit
 import re
 import time
 import zipfile
@@ -86,7 +89,8 @@ LOGIN_ATTEMPTS = {}
 @app.middleware('http')
 async def origin_guard(request, call_next):
     origin = request.headers.get('origin')
-    if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin and origin not in ('http://127.0.0.1:5175', 'http://localhost:5175', 'http://127.0.0.1:8001'):
+    same_origin = origin and urlsplit(origin).netloc == request.headers.get('host')
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin and not same_origin and origin not in ('http://127.0.0.1:5175', 'http://localhost:5175', 'http://127.0.0.1:8001'):
         return Response(content='Origin không được phép', status_code=403)
     return await call_next(request)
 
@@ -137,8 +141,7 @@ def me(user=Depends(current_user)):
 def logout(request: Request, response: Response, user=Depends(current_user)):
     header = request.headers.get('authorization', '')
     token = header[7:] if header.startswith('Bearer ') else request.cookies.get('lt_session', '')
-    with store.connect() as conn:
-        conn.execute('DELETE FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
+    store.delete_session(hashlib.sha256(token.encode()).hexdigest())
     response.delete_cookie('lt_session', path='/api')
     return {'message': 'Đã đăng xuất'}
 
@@ -209,7 +212,7 @@ def video(lid: str, user=Depends(current_user)):
     asset = next((a for a in data.get('assets', []) if a['kind'] == 'video' and a.get('source_type') != 'youtube_reference'), None)
     if not asset: raise HTTPException(404, 'Chưa có video')
     path = store.DATA / 'media' / Path(asset['path']).name
-    if not path.is_file(): raise HTTPException(404, 'Chưa dựng video mẫu; chạy npm run setup')
+    if not store.restore_media(path): raise HTTPException(404, 'Không tìm thấy tệp video')
     return FileResponse(path, media_type='video/mp4', headers={'Cache-Control': 'private, no-store'})
 
 
@@ -244,8 +247,9 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     suffix = Path(file.filename or '').suffix.lower()
     allowed = {'video': {'.mp4'}, 'slides': {'.pdf', '.pptx'}, 'transcript': {'.json', '.vtt', '.txt'}}
     if kind not in allowed or suffix not in allowed[kind]: raise HTTPException(422, 'Định dạng không được hỗ trợ cho loại học liệu này')
-    payload = await file.read(25 * 1024 * 1024 + 1)
-    if len(payload) > 25 * 1024 * 1024: raise HTTPException(413, 'Giới hạn tệp demo là 25 MB')
+    limit_mb = 4 if os.environ.get('VERCEL') else 25
+    payload = await file.read(limit_mb * 1024 * 1024 + 1)
+    if len(payload) > limit_mb * 1024 * 1024: raise HTTPException(413, f'Giới hạn tệp demo là {limit_mb} MB')
     if not payload: raise HTTPException(422, 'Tệp rỗng')
     folder = store.DATA / 'media'
     folder.mkdir(parents=True, exist_ok=True)
@@ -255,6 +259,8 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     asset = {'id': aid, 'kind': kind, 'name': Path(file.filename or 'upload').name[:160], 'path': path.name, 'status': 'ready', 'source_type': 'user_upload', 'notes': 'Dữ liệu tải lên được coi là nội dung, không phải chỉ dẫn cho tác nhân.'}
     try:
         if kind == 'video':
+            if not shutil.which('ffprobe'):
+                raise ValueError('Bản online dùng học liệu thực hành có sẵn. Tải và xử lý video riêng ở bản local có FFmpeg.')
             import subprocess
             report = subprocess.run(['ffprobe', '-v', 'quiet', '-show_format', '-of', 'json', str(path)], capture_output=True, text=True, timeout=20, check=True)
             asset['duration_seconds'] = float(json.loads(report.stdout)['format']['duration'])
@@ -282,6 +288,7 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     except Exception as error:
         path.unlink(missing_ok=True)
         raise HTTPException(422, f'Không đọc được học liệu: {error}') from error
+    store.save_media(path)
     lecture['assets'] = [a for a in lecture['assets'] if a['kind'] != kind] + [asset]
     lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[])
     domain.snapshot(lecture, 'asset_uploaded', f'Tải {kind}; chờ phân tích nguồn mới')

@@ -6,3 +6,5 @@ pypdf>=5,<7
 pillow>=11,<13
 pytest>=8,<10
 httpx>=0.27,<1
+
+vercel==0.12.1

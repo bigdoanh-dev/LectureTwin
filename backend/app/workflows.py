@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 import os
 import subprocess
+import shutil
 import time
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -73,6 +74,10 @@ def media_probe(lecture):
     if not asset:
         return {'status': 'partial', 'reason': 'Chưa có video', 'asr': 'unavailable', 'vision': 'unavailable'}
     path = store.DATA / 'media' / Path(asset['path']).name
+    store.restore_media(path)
+    if not shutil.which('ffprobe') or not shutil.which('ffmpeg'):
+        return {'status': 'partial', 'duration_seconds': asset.get('duration_seconds'), 'asr': 'unavailable', 'vision': 'unavailable',
+            'note': 'Bản online chỉ đọc văn bản đã cung cấp; xử lý video riêng cần bản local có FFmpeg.'}
     if not path.exists():
         raise ValueError('Tệp video không tồn tại. Chạy npm run setup để dựng video mẫu.')
     result = subprocess.run(['ffprobe', '-v', 'quiet', '-show_format', '-show_streams', '-of', 'json', str(path)], capture_output=True, text=True, timeout=15, check=True)
@@ -293,6 +298,9 @@ def execute(job_id):
 
 
 def schedule(job_id):
+    if os.environ.get('VERCEL'):
+        execute(job_id)
+        return
     with store.LOCK:
         if job_id not in SCHEDULED:
             SCHEDULED.add(job_id)
