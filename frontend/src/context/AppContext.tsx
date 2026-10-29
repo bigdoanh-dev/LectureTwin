@@ -11,10 +11,14 @@ interface AppContextValue {
   activeJob: Job | null;
   loading: boolean;
   error: string | null;
+  preferredRole: Role | null;
   currentView: ViewType;
   videoSeekTarget: number | null;
   setCurrentView: (view: ViewType) => void;
   selectLecture: (id: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  loginDemo: (role: Role) => Promise<void>;
+  logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
@@ -25,13 +29,14 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
-// Share only an in-flight restore, so StrictMode cannot issue two demo logins.
-let restoring: Promise<User> | null = null;
-function restoreSession(): Promise<User> {
+// Share only an in-flight restore between StrictMode mounts.
+let restoring: Promise<User | null> | null = null;
+function restoreSession(): Promise<User | null> {
   if (!restoring) {
     restoring = api.getMe().catch((error) => {
       if (error.status !== 401) throw error;
-      return api.demoLogin('teacher').then(result => result.user);
+      api.setToken(null);
+      return null;
     }).finally(() => { restoring = null; });
   }
   return restoring;
@@ -47,11 +52,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeJob, updateActiveJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [preferredRole, setPreferredRole] = useState<Role | null>(null);
   const [currentView, updateCurrentView] = useState<ViewType>('ai');
   const [videoSeekTarget, setVideoSeekTarget] = useState<number | null>(null);
   const generation = useRef(0);
   const mounted = useRef(false);
   const lectureRef = useRef('');
+  const preferredLectureRef = useRef('');
   const jobRef = useRef<Job | null>(null);
   const roleRef = useRef<Role>('teacher');
   const isCurrent = useCallback((value: number) => mounted.current && generation.current === value, []);
@@ -94,22 +101,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     mounted.current = true;
     const value = beginLoad();
-    restoreSession().then(session => loadSession(session, value)).catch(err => {
+    restoreSession().then(session => session ? loadSession(session, value) : undefined).catch(err => {
       if (isCurrent(value)) setError(errorText(err));
     }).finally(() => { if (isCurrent(value)) setLoading(false); });
     return () => { mounted.current = false; generation.current++; };
   }, [beginLoad, isCurrent, loadSession]);
 
-  const switchRole = useCallback(async (nextRole: Role) => {
-    const preferredLectureId = lectureRef.current;
+  const login = useCallback(async (username: string, password: string) => {
     const value = beginLoad();
     setBootstrap(null); setUser(null); lectureRef.current = ''; setCurrentLectureId('');
     try {
-      const session = await api.demoLogin(nextRole);
-      await loadSession(session.user, value, preferredLectureId);
-    } catch (err) { if (isCurrent(value)) setError(errorText(err)); }
+      const session = await api.login(username.trim(), password);
+      await loadSession(session.user, value, preferredLectureRef.current);
+      if (isCurrent(value)) { preferredLectureRef.current = ''; setPreferredRole(null); }
+    } catch (err) {
+      if (isCurrent(value)) setError(errorText(err));
+      throw err;
+    }
     finally { if (isCurrent(value)) setLoading(false); }
   }, [beginLoad, isCurrent, loadSession]);
+
+  const loginDemo = useCallback((nextRole: Role) => login(nextRole, 'demo123'), [login]);
+
+  const endSession = useCallback(async (nextRole: Role | null) => {
+    const value = generation.current;
+    setLoading(true); setError(null);
+    try {
+      await api.logout();
+      if (!isCurrent(value)) return;
+      preferredLectureRef.current = nextRole ? lectureRef.current : '';
+      beginLoad();
+      setUser(null); setBootstrap(null); lectureRef.current = ''; setCurrentLectureId('');
+      setPreferredRole(nextRole);
+      setLoading(false);
+    } catch (err) {
+      if (isCurrent(value)) {
+        setError(`Không thể đăng xuất. ${errorText(err)}`);
+        setLoading(false);
+      }
+    }
+  }, [beginLoad, isCurrent]);
+  const logout = useCallback(() => endSession(null), [endSession]);
+  const switchRole = useCallback((nextRole: Role) => endSession(nextRole), [endSession]);
 
   const selectLecture = useCallback(async (id: string) => {
     const value = beginLoad();
@@ -165,8 +198,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const seekVideoTo = useCallback((seconds: number) => { if (Number.isFinite(seconds) && seconds >= 0) setVideoSeekTarget(seconds); }, []);
   const clearVideoSeek = useCallback(() => setVideoSeekTarget(null), []);
 
-  return <AppContext.Provider value={{ user, role, bootstrap, currentLectureId, workspace, activeJob, loading, error,
-    currentView, videoSeekTarget, setCurrentView, selectLecture, switchRole, refreshWorkspace, refreshBootstrap,
+  return <AppContext.Provider value={{ user, role, bootstrap, currentLectureId, workspace, activeJob, loading, error, preferredRole,
+    currentView, videoSeekTarget, setCurrentView, selectLecture, login, loginDemo, logout, switchRole, refreshWorkspace, refreshBootstrap,
     seekVideoTo, clearVideoSeek, setActiveJob, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 };
 export function useApp() {

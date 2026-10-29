@@ -1,4 +1,4 @@
-import {
+import type {
   BootstrapData,
   Workspace,
   Job,
@@ -90,6 +90,18 @@ class ApiService {
     return this.request<{ status: string }>('/health');
   }
 
+  async login(username: string, password: string): Promise<{ access_token: string; user: User }> {
+    const task = this.sessionQueue.catch(() => undefined).then(async () => {
+      const result = await this.request<{ access_token: string; user: User }>('/auth/login', {
+        method: 'POST', body: JSON.stringify({ username, password }),
+      });
+      this.setToken(result.access_token);
+      return result;
+    });
+    this.sessionQueue = task;
+    return task;
+  }
+
   async demoLogin(role: Role): Promise<{ access_token: string; user: User }> {
     const task = this.sessionQueue.catch(() => undefined).then(async () => {
       const result = await this.request<{ access_token: string; user: User }>('/auth/demo-login', {
@@ -107,11 +119,16 @@ class ApiService {
   }
 
   async logout(): Promise<void> {
-    try {
-      await this.request('/auth/logout', { method: 'POST' });
-    } finally {
+    const task = this.sessionQueue.catch(() => undefined).then(async () => {
+      try {
+        await this.request('/auth/logout', { method: 'POST' });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      }
       this.setToken(null);
-    }
+    });
+    this.sessionQueue = task;
+    return task;
   }
 
   // --- Bootstrap ---

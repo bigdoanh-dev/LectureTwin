@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
+import { LoginView } from './views/LoginView';
 import { AiWorkspaceView } from './views/AiWorkspaceView';
 import { ExecutionCenterView } from './views/ExecutionCenterView';
 import { LecturesView } from './views/LecturesView';
@@ -14,16 +15,38 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 
 function AppContent() {
   const {
+    user,
     currentView,
     setCurrentView,
     role,
     switchRole,
+    logout,
     bootstrap,
     workspace,
     error,
     clearError,
     loading
   } = useApp();
+
+  // Loading gate for initial session check
+  if (loading && !user) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fc] flex flex-col items-center justify-center p-6 space-y-4 font-sans text-center">
+        <div className="w-12 h-12 rounded-2xl bg-white border border-[#e1e7ef] shadow-sm flex items-center justify-center text-[#2959ea]">
+          <RefreshCw className="w-6 h-6 animate-spin" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-base font-bold text-[#12213b]">LectureTwin</p>
+          <p className="text-xs sm:text-sm font-medium text-[#5f708b]">Đang kiểm tra phiên đăng nhập...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated user -> render realistic Login screen
+  if (!user) {
+    return <LoginView />;
+  }
 
   const isAdvancedView = ['agents', 'graph', 'twin', 'simulation'].includes(currentView);
 
@@ -32,6 +55,8 @@ function AppContent() {
       {/* Top White Navigation Header (72px) */}
       <Header
         currentRole={role}
+        user={user}
+        onLogout={logout}
         onSwitchRole={switchRole}
         courses={bootstrap?.courses || []}
         selectedLecture={workspace?.lecture}
@@ -58,7 +83,7 @@ function AppContent() {
           </div>
         )}
 
-        {/* Loading gate in App: prevents any transient 'no source' / 'no analysis' flicker while fetching */}
+        {/* Loading gate in App: prevents any transient 'no source' / 'no analysis' flicker while fetching workspace */}
         {loading && !workspace ? (
           <div className="space-y-6 max-w-[1440px] mx-auto pb-12 animate-pulse">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">

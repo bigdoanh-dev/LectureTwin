@@ -4,18 +4,20 @@ import {
   AlertCircle,
   X,
   RefreshCw,
+  LogOut,
   User as UserIcon,
-  ChevronDown,
   PlayCircle,
   MessageSquare,
   FileText,
   type LucideIcon
 } from 'lucide-react';
-import { Role, Course, LectureSummary, ViewType } from '../types';
+import { Role, Course, LectureSummary, ViewType, User } from '../types';
 
 interface HeaderProps {
   currentRole: Role;
-  onSwitchRole: (role: Role) => void;
+  user?: User | null;
+  onLogout?: () => void;
+  onSwitchRole?: (role: Role) => void;
   courses: Course[];
   selectedLecture?: LectureSummary | null;
   error?: string | null;
@@ -27,7 +29,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
-  onSwitchRole,
+  user,
+  onLogout,
   courses,
   selectedLecture,
   error,
@@ -117,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
           </nav>
         </div>
 
-        {/* Center / Right: Loading indicator & Role Switcher */}
+        {/* Center / Right: Loading indicator, User badge & Logout */}
         <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
           {loading && (
             <div className="hidden sm:flex items-center space-x-1 text-xs text-[#5f708b] font-medium bg-[#f6f8fc] px-2 py-1 rounded-lg border border-[#e1e7ef]" role="status">
@@ -126,33 +129,37 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Role Picker matching concept: fully visible on 320px with >=44px touch target */}
-          <div className={`relative flex items-center bg-white border border-[#e1e7ef] rounded-xl px-2 sm:px-3 min-h-[44px] transition-colors shadow-2xs hover:border-slate-300 ${
-            loading ? 'opacity-60 cursor-not-allowed' : ''
-          }`}>
-            <UserIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#5f708b] mr-1.5 shrink-0" />
-            <select
-              id="role-switcher"
-              value={currentRole}
-              onChange={(e) => onSwitchRole(e.target.value as Role)}
-              disabled={loading}
-              className="bg-transparent font-semibold text-[#12213b] min-h-[44px] py-2 focus:outline-hidden cursor-pointer text-xs sm:text-sm disabled:cursor-not-allowed pr-5 appearance-none"
-              aria-label="Chọn vai trò người dùng"
+          {/* Authenticated User Identity Pill */}
+          <div className="flex items-center gap-2 bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl px-2.5 sm:px-3 py-1.5 min-h-[44px]">
+            <div
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#12213b] text-white font-bold text-xs flex items-center justify-center select-none shrink-0"
+              title={`${user?.full_name || getRoleLabel(currentRole)}`}
             >
-              <option value="teacher">Giảng viên</option>
-              <option value="student">Học viên</option>
-              <option value="admin">Quản trị viên</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#5f708b] absolute right-1.5 sm:right-2.5 pointer-events-none shrink-0" />
+              {getRoleInitials(currentRole)}
+            </div>
+            <div className="text-left hidden xs:block">
+              <div className="font-semibold text-xs sm:text-sm text-[#12213b] leading-tight truncate max-w-[120px] sm:max-w-[160px]">
+                {user?.full_name || user?.username || getRoleLabel(currentRole)}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#5f708b] font-medium">
+                {getRoleLabel(currentRole)}
+              </div>
+            </div>
           </div>
 
-          {/* Avatar: HIDDEN BELOW MD per review specification */}
-          <div
-            className="hidden md:flex w-9 h-9 rounded-full bg-[#12213b] text-white font-bold text-xs items-center justify-center select-none shadow-xs shrink-0"
-            title={`${getRoleLabel(currentRole)} (demo)`}
-          >
-            {getRoleInitials(currentRole)}
-          </div>
+          {/* Keyboard-accessible Logout / Account Switch Action */}
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="min-h-[44px] min-w-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl border border-[#e1e7ef] bg-white hover:bg-red-50 hover:border-red-200 text-[#5f708b] hover:text-red-700 font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea] shadow-2xs"
+              aria-label="Đăng xuất / Đổi tài khoản"
+              title="Đăng xuất / Đổi tài khoản"
+            >
+              <LogOut className="w-4 h-4 shrink-0 text-slate-500 hover:text-red-600" />
+              <span className="hidden md:inline">Đổi tài khoản</span>
+            </button>
+          )}
         </div>
       </div>
 

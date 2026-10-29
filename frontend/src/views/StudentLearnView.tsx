@@ -262,10 +262,11 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
   const publishedAssessment = currentAssessments(workspace).find(a => a.status === 'published');
 
   // Honest caption (Review point 7)
-  const videoCaption = workspace?.lecture.sample_attached
-    ? 'Trích đoạn minh họa 50 giây'
+  const isSample = Boolean(workspace?.lecture.sample_attached);
+  const videoCaption = isSample
+    ? 'Video bài giảng tham khảo và học liệu thực hành 50 giây'
     : (workspace?.assets.some(a => a.kind === 'video')
-      ? `Video bài giảng (Kế hoạch ${workspace?.lecture.total_minutes || 50} phút)`
+      ? 'Video bài giảng đã tải lên'
       : 'Học liệu bài giảng');
 
   return (
@@ -318,8 +319,16 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
             {videoCaption}
           </div>
 
-          {/* Transcript clickable rows matching concept PNG */}
-          <div className="space-y-1.5 pt-1">
+          {/* Transcript clickable rows matching concept PNG: explicitly a section for practice materials */}
+          <div className="space-y-1.5 pt-2 border-t border-[#e1e7ef]">
+            <div className="flex items-center justify-between pb-1">
+              <h3 className="font-bold text-xs sm:text-sm text-[#12213b]">
+                {isSample ? 'Học liệu thực hành & lời thoại đối chiếu' : 'Lời thoại bài giảng'}
+              </h3>
+              <span className="text-[11px] text-[#5f708b] bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                {isSample ? 'Biên soạn riêng (50s)' : 'Tài liệu bài giảng'}
+              </span>
+            </div>
             <div className="space-y-1">
               {transcript.length === 0 ? (
                 <div className="p-4 text-center text-xs text-[#5f708b] italic">
@@ -360,7 +369,9 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
             </div>
 
             <p className="text-xs text-[#5f708b] pt-1">
-              Bấm vào một đoạn để xem lại đúng phần bài giảng.
+              {isSample
+                ? 'Bấm vào một đoạn để chuyển sang học liệu thực hành và tua đúng phần minh họa.'
+                : 'Bấm vào một đoạn để tua video đến đúng vị trí.'}
             </p>
           </div>
 
@@ -520,7 +531,11 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
                                   className="min-h-[44px] inline-flex items-center gap-1.5 bg-blue-50/80 hover:bg-blue-100 text-[#2959ea] font-semibold text-xs px-3 py-2 rounded-xl border border-blue-200 transition-colors cursor-pointer"
                                 >
                                   <Play className="w-3 h-3 fill-current" />
-                                  <span>Xem đoạn nguồn {formatEvidenceLabel(cite)}</span>
+                                  <span>
+                                    {isSample
+                                      ? `Xem học liệu thực hành ${formatEvidenceLabel(cite)}`
+                                      : (cite.kind === 'slide' ? `Xem trang slide ${cite.slide_page ?? 1}` : `Xem đoạn nguồn ${formatEvidenceLabel(cite)}`)}
+                                  </span>
                                 </button>
                               ))}
                             </div>

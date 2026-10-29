@@ -7,7 +7,8 @@ import {
   AlertCircle,
   RefreshCw,
   X,
-  CheckCircle2
+  CheckCircle2,
+  Info
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
@@ -106,6 +107,123 @@ export const AdminView: React.FC = () => {
 
   const auditLogs = monitoring?.audit || [];
 
+  const formatActionName = (action: string) => {
+    const key = (action || '').toUpperCase().trim();
+    switch (key) {
+      case 'LOGIN':
+        return 'Đăng nhập';
+      case 'DEMO_LOGIN':
+        return 'Đăng nhập thử nghiệm';
+      case 'LOGOUT':
+      case 'USER_LOGOUT':
+        return 'Đăng xuất';
+      case 'CREATE_USER':
+      case 'USER_CREATE':
+        return 'Tạo tài khoản';
+      case 'UPDATE_USER':
+      case 'USER_PATCH':
+      case 'PATCH_USER':
+        return 'Cập nhật tài khoản';
+      case 'CREATE_LECTURE':
+        return 'Tạo bài giảng mới';
+      case 'ATTACH_SAMPLE':
+        return 'Gắn học liệu mẫu';
+      case 'UPLOAD_ASSET':
+        return 'Tải lên tệp học liệu';
+      case 'JOB_CONTROL':
+        return 'Điều khiển tiến trình xử lý';
+      case 'START_WORKFLOW':
+      case 'RUN_PIPELINE':
+      case 'EXECUTE_JOB':
+        return 'Khởi chạy luồng phân tích';
+      case 'REVIEW_FINDING':
+        return 'Duyệt đề xuất học liệu';
+      case 'BULK_REVIEW':
+        return 'Duyệt toàn bộ đề xuất';
+      case 'PUBLISH_LECTURE':
+      case 'REVIEW_LECTURE':
+        return 'Xuất bản bài giảng';
+      case 'PUBLISH_ASSESSMENT':
+        return 'Xuất bản bài kiểm tra';
+      case 'SUBMIT_ASSESSMENT':
+        return 'Nộp bài kiểm tra';
+      case 'CREATE_SCENARIO_VERSION':
+        return 'Lưu kịch bản bài học';
+      case 'EDIT_CONCEPT':
+        return 'Chỉnh sửa khái niệm';
+      case 'QUIZ_GENERATE':
+        return 'Tạo câu hỏi trắc nghiệm';
+      case 'TUTOR_QUERY':
+        return 'Trợ lý học tập phản hồi';
+      default:
+        return 'Hoạt động hệ thống';
+    }
+  };
+
+  const formatRoleName = (r: string) => {
+    const roleKey = (r || '').toLowerCase().trim();
+    if (roleKey === 'admin') return 'Quản trị viên';
+    if (roleKey === 'teacher') return 'Giảng viên';
+    if (roleKey === 'student') return 'Học viên';
+    return r;
+  };
+
+  const formatLogDetail = (detail: unknown, action: string) => {
+    if (detail === null || detail === undefined || detail === '') return 'Thao tác đã được ghi nhận.';
+    if (typeof detail !== 'object') {
+      const value = String(detail);
+      const idLabels: Record<string, string> = {
+        CREATE_USER: 'Mã tài khoản',
+        UPDATE_USER: 'Mã tài khoản',
+        PUBLISH_ASSESSMENT: 'Mã bài kiểm tra',
+        CREATE_SCENARIO_VERSION: 'Mã kịch bản',
+        EDIT_CONCEPT: 'Mã khái niệm',
+      };
+      const label = idLabels[(action || '').toUpperCase().trim()];
+      return label ? `${label}: ${value}` : value;
+    }
+
+    const fields = detail as Record<string, unknown>;
+    const parts: string[] = [];
+    const add = (key: string, label: string, format?: (value: unknown) => string) => {
+      const value = fields[key];
+      if (value !== null && value !== undefined && value !== '') {
+        parts.push(`${label}: ${format ? format(value) : String(value)}`);
+      }
+    };
+    const workflowNames: Record<string, string> = {
+      analysis: 'Phân tích bài giảng',
+      tutor: 'Hỗ trợ học tập',
+      assessment: 'Tạo bài kiểm tra',
+      planning: 'Lập kế hoạch bài học',
+    };
+    const actionNames: Record<string, string> = { pause: 'Tạm dừng', cancel: 'Hủy' };
+    const decisionNames: Record<string, string> = { confirm: 'Đã xác minh', reject: 'Loại khỏi nội dung' };
+
+    add('username', 'Tài khoản');
+    add('role', 'Vai trò', value => formatRoleName(String(value)));
+    add('is_active', 'Trạng thái', value => value ? 'Hoạt động' : 'Tạm khóa');
+    add('lecture_id', 'Bài giảng');
+    add('version', 'Phiên bản', value => `v${String(value)}`);
+    add('target', 'Mục tiêu');
+    add('method', 'Phương thức');
+    add('course_id', 'Học phần');
+    add('finding_id', 'Đề xuất');
+    add('status', 'Trạng thái');
+    add('count', 'Số lượng');
+    add('asset_id', 'Mã tệp học liệu');
+    add('kind', 'Loại tệp');
+    add('job_id', 'Mã tiến trình');
+    add('assessment_id', 'Mã bài kiểm tra');
+    add('attempt_id', 'Mã lượt làm bài');
+    add('workflow', 'Quy trình', value => workflowNames[String(value)] || 'Quy trình học tập');
+    add('decision', 'Quyết định', value => decisionNames[String(value)] || 'Đã ghi nhận');
+    add('action', 'Thao tác', value => actionNames[String(value)] || 'Đã cập nhật');
+    add('note', 'Ghi chú');
+
+    return parts.length ? parts.join(' · ') : 'Chi tiết hoạt động đã được ghi nhận.';
+  };
+
   return (
     <motion.div
       initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
@@ -116,10 +234,10 @@ export const AdminView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
-            Quản trị hệ thống & Giám sát tác nhân AI
+            Quản trị hệ thống & Giám sát hoạt động
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-            Quản trị viên chịu trách nhiệm kỹ thuật và bảo mật, không có quyền duyệt nội dung học thuật.
+            Quản lý tài khoản và vận hành kỹ thuật. Quản trị viên không can thiệp hoặc thay đổi nội dung chuyên môn của giảng viên.
           </p>
         </div>
 
@@ -132,6 +250,14 @@ export const AdminView: React.FC = () => {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#2959ea]' : 'text-[#5f708b]'}`} />
           <span>Làm mới dữ liệu</span>
         </button>
+      </div>
+
+      {/* Honest system capability disclaimer */}
+      <div className="bg-[#f0f4f9] border border-[#e1e7ef] rounded-xl p-3.5 text-xs text-[#5f708b] flex items-center gap-2.5">
+        <Info className="w-4 h-4 text-[#2959ea] shrink-0" />
+        <span>
+          Hệ thống hiện vận hành dựa trên bộ quy tắc và học liệu thực hành biên soạn sẵn; chưa kích hoạt kết nối mô hình bên ngoài (LLM) hoặc nhận dạng giọng nói tự động (ASR).
+        </span>
       </div>
 
       {msg && (
@@ -157,35 +283,35 @@ export const AdminView: React.FC = () => {
       {/* Real Metrics Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-4 shadow-2xs">
-          <span className="text-[#5f708b] block text-[11px] font-medium">Lượt gọi công cụ (Tool Calls)</span>
+          <span className="text-[#5f708b] block text-[11px] font-medium">Lượt thực thi công cụ</span>
           <div className="text-2xl font-bold text-[#2959ea] mt-1">
             {metrics.tool_calls ?? 0}
           </div>
-          <span className="text-[10px] text-[#5f708b]">Deterministic Tool Engine</span>
+          <span className="text-[10px] text-[#5f708b]">Công cụ phân tích nội bộ</span>
         </div>
 
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-4 shadow-2xs">
-          <span className="text-[#5f708b] block text-[11px] font-medium">Lượt gọi LLM ngoài</span>
+          <span className="text-[#5f708b] block text-[11px] font-medium">Lượt gọi mô hình bên ngoài</span>
           <div className="text-2xl font-bold text-[#12213b] mt-1">
             {metrics.model_calls}
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold">Rule-based mode (0 external call)</span>
+          <span className="text-[10px] text-emerald-600 font-semibold">Quy tắc nội bộ (0 kết nối ngoài)</span>
         </div>
 
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-4 shadow-2xs">
-          <span className="text-[#5f708b] block text-xs font-medium">Token mô hình</span>
+          <span className="text-[#5f708b] block text-xs font-medium">Số lượng token</span>
           <div className="text-lg font-bold text-[#12213b] mt-1">
-            {metrics.tokens == null ? 'Không áp dụng' : metrics.tokens}
+            {metrics.tokens == null ? 'Không phát sinh' : metrics.tokens}
           </div>
-          <span className="text-xs text-[#5f708b]">Chưa gọi mô hình bên ngoài</span>
+          <span className="text-xs text-[#5f708b]">Chưa sử dụng API bên ngoài</span>
         </div>
 
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-4 shadow-2xs">
-          <span className="text-[#5f708b] block text-[11px] font-medium">Tác vụ hoàn tất / Thất bại</span>
+          <span className="text-[#5f708b] block text-[11px] font-medium">Tác vụ hoàn tất / Lỗi</span>
           <div className="text-2xl font-bold text-emerald-600 mt-1">
             {metrics.completed_jobs} <span className="text-sm font-normal text-rose-500">/ {metrics.failed_jobs}</span>
           </div>
-          <span className="text-[10px] text-[#5f708b]">Tổng thời gian: {Math.round(metrics.total_latency_ms ?? 0)}ms</span>
+          <span className="text-[10px] text-[#5f708b]">Tổng thời gian: {Math.round(metrics.total_latency_ms ?? 0)} ms</span>
         </div>
       </div>
 
@@ -256,13 +382,13 @@ export const AdminView: React.FC = () => {
         <div className="flex items-center space-x-2">
           <Clock className="w-5 h-5 text-[#2959ea]" />
           <h2 className="font-bold text-sm sm:text-base text-[#12213b]">
-            Nhật ký kiểm toán & Thao tác (Audit Trail — {auditLogs.length})
+            Nhật ký hoạt động hệ thống ({auditLogs.length})
           </h2>
         </div>
 
         {auditLogs.length === 0 ? (
           <div className="text-center py-6 text-[#5f708b] text-xs">
-            Chưa ghi nhận sự kiện kiểm toán nào.
+            Chưa ghi nhận sự kiện hoạt động nào.
           </div>
         ) : (
           <div className="max-h-72 overflow-y-auto space-y-2">
@@ -271,13 +397,13 @@ export const AdminView: React.FC = () => {
                 <div className="space-y-0.5">
                   <div className="flex items-center space-x-2">
                     <span className="font-mono text-[10px] text-[#5f708b]">{log.id}</span>
-                    <span className="font-bold text-[#12213b]">{log.action}</span>
-                    <span className="text-[10px] bg-slate-200/80 text-[#12213b] px-1.5 py-0.5 rounded font-mono">
-                      {log.actor_id} ({log.actor_role})
+                    <span className="font-bold text-[#12213b]">{formatActionName(log.action)}</span>
+                    <span className="text-[10px] bg-slate-200/80 text-[#12213b] px-1.5 py-0.5 rounded font-medium">
+                      {log.actor_id} ({formatRoleName(log.actor_role)})
                     </span>
                   </div>
                   <p className="text-[#5f708b] text-[11px] leading-relaxed">
-                    {typeof log.detail === 'object' ? JSON.stringify(log.detail) : log.detail}
+                    {formatLogDetail(log.detail, log.action)}
                   </p>
                 </div>
 
@@ -304,7 +430,7 @@ export const AdminView: React.FC = () => {
 
             <form onSubmit={handleCreateUser} className="space-y-3">
               <div>
-                <label className="block font-bold text-[#12213b] mb-1">Tên đăng nhập (Username):</label>
+                <label className="block font-bold text-[#12213b] mb-1">Tên đăng nhập:</label>
                 <input
                   type="text"
                   value={newUsername}
@@ -343,9 +469,9 @@ export const AdminView: React.FC = () => {
                   onChange={e => setNewRole(e.target.value as Role)}
                   className="w-full bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl p-2.5 text-xs text-[#12213b] focus:ring-2 focus:ring-[#2959ea]"
                 >
-                  <option value="teacher">Giảng viên (Teacher)</option>
-                  <option value="student">Học viên (Student)</option>
-                  <option value="admin">Quản trị viên (Admin)</option>
+                  <option value="teacher">Giảng viên</option>
+                  <option value="student">Học viên</option>
+                  <option value="admin">Quản trị viên</option>
                 </select>
               </div>
 

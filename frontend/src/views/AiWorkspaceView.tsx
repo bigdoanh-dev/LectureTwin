@@ -354,10 +354,11 @@ export const AiWorkspaceView: React.FC = () => {
   };
 
   // Honest media caption
-  const videoCaption = workspace?.lecture.sample_attached
-    ? 'Video mẫu 50 giây'
+  const isSample = Boolean(workspace?.lecture.sample_attached);
+  const videoCaption = isSample
+    ? 'Video bài giảng tham khảo và học liệu thực hành 50 giây'
     : (workspace?.assets.some(a => a.kind === 'video')
-      ? `Video bài giảng (Kế hoạch ${workspace?.lecture.total_minutes || 50} phút)`
+      ? 'Video bài giảng đã tải lên'
       : 'Học liệu bài giảng');
 
   // Step 3 label per Review line 26: use workflow.reviewed -> 'Đã duyệt, chờ xuất bản'
@@ -372,18 +373,20 @@ export const AiWorkspaceView: React.FC = () => {
       transition={{ duration: 0.18 }}
       className="space-y-6 max-w-[1440px] mx-auto pb-12"
     >
-      {/* 1. Top Section: Heading, Subtitle & Action "Xem như học viên" */}
+      {/* 1. Top Section: Heading, Subtitle & Action */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
             Từ bài giảng đến trợ lý học tập
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-            AI đề xuất nội dung có dẫn nguồn. Bạn kiểm tra trước khi giao cho học viên.
+            {isSample
+              ? 'Các gợi ý hiện được tạo từ học liệu thực hành đã biên soạn; giảng viên kiểm tra trước khi xuất bản.'
+              : 'AI đề xuất nội dung từ bài giảng và tài liệu tải lên; giảng viên kiểm tra trước khi xuất bản.'}
           </p>
         </div>
 
-        {/* Action: Xem như học viên */}
+        {/* Action: Chuyển sang tài khoản học viên */}
         <div className="shrink-0 flex items-center gap-2">
           <button
             type="button"
@@ -394,10 +397,10 @@ export const AiWorkspaceView: React.FC = () => {
                 ? 'bg-white text-[#2959ea] border-[#2959ea] hover:bg-blue-50/60 shadow-2xs'
                 : 'bg-white text-[#5f708b] border-[#e1e7ef] opacity-60 cursor-not-allowed'
             }`}
-            title={workflow.published ? 'Chuyển sang góc nhìn người học' : 'Chỉ xem được sau khi bài giảng đã xuất bản'}
+            title={workflow.published ? 'Chuyển sang tài khoản học viên' : 'Chỉ khả dụng sau khi bài giảng đã xuất bản'}
           >
             <Eye className="w-4 h-4 text-[#2959ea]" />
-            <span>Xem như học viên</span>
+            <span>Chuyển sang tài khoản học viên</span>
           </button>
         </div>
       </div>
@@ -516,7 +519,7 @@ export const AiWorkspaceView: React.FC = () => {
         {/* LEFT 43% (~5 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
         <div className="lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
           <h2 className="font-bold text-[20px] text-[#12213b]">
-            Bài giảng gốc
+            Video và học liệu
           </h2>
 
           {/* Embedded Native Video Player (NO nested card wrapper) */}
@@ -536,7 +539,9 @@ export const AiWorkspaceView: React.FC = () => {
           {/* Selected Citation Quote Box */}
           <div className="bg-[#f0f5ff] rounded-xl p-4 border border-blue-100 space-y-1.5">
             <div className="text-xs font-bold text-[#12213b]">
-              Đoạn trích nguồn đang chọn
+              {isSample
+                ? 'Trích đoạn học liệu thực hành'
+                : (currentEvidence?.kind === 'slide' ? 'Trích dẫn trang slide' : 'Trích đoạn nguồn bài giảng')}
             </div>
 
             {currentEvidence ? (
@@ -545,12 +550,16 @@ export const AiWorkspaceView: React.FC = () => {
                   “{currentEvidence.text}”
                 </p>
                 <div className="text-xs text-[#5f708b] font-medium pt-0.5">
-                  {formatEvidenceLabel(currentEvidence)}
+                  {formatEvidenceLabel(currentEvidence)} · {isSample
+                    ? 'Ghi chú chuẩn bị sẵn, không trích xuất trực tiếp từ YouTube'
+                    : (currentEvidence.kind === 'slide' ? 'Nội dung trang slide đã chuẩn bị' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
                 </div>
               </>
             ) : (
               <p className="text-xs text-[#5f708b] italic">
-                Bấm vào liên kết mốc thời gian ở cột bên phải để đối chiếu ngay trên video.
+                {isSample
+                  ? 'Bấm vào liên kết mốc thời gian ở cột bên phải để đối chiếu ngay trên học liệu thực hành.'
+                  : 'Bấm vào liên kết mốc thời gian ở cột bên phải để đối chiếu trên bài giảng.'}
               </p>
             )}
           </div>
@@ -558,7 +567,11 @@ export const AiWorkspaceView: React.FC = () => {
           {/* Bottom Caption matching concept */}
           <div className="flex items-center gap-2 text-xs text-[#5f708b] pt-1">
             <FileText className="w-4 h-4 text-[#5f708b] shrink-0" />
-            <span>Video, chú giải theo thời gian và slide đã chuẩn bị.</span>
+            <span>
+              {isSample
+                ? 'Video tham khảo YouTube cùng học liệu thực hành và slide đã chuẩn bị.'
+                : 'Video và tài liệu bài giảng đã tải lên.'}
+            </span>
           </div>
         </div>
 
@@ -848,10 +861,14 @@ export const AiWorkspaceView: React.FC = () => {
                             type="button"
                             onClick={() => handleSelectEvidence(row.evidence)}
                             className="min-h-[44px] flex items-center gap-1.5 text-xs sm:text-sm text-[#2959ea] hover:underline font-semibold shrink-0 cursor-pointer pt-0.5 group-hover:text-blue-800 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-md px-2"
-                            title="Bấm để tua video đến mốc này"
+                            title={row.evidence.kind === 'slide' ? 'Bấm để xem trang slide tương ứng' : 'Bấm để tua video đến mốc này'}
                           >
                             <LinkIcon className="w-3.5 h-3.5" />
-                            <span>{formatEvidenceLabel(row.evidence)}</span>
+                            <span>
+                              {isSample
+                                ? `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
+                                : (row.evidence.kind === 'slide' ? `Slide trang ${row.evidence.slide_page ?? 1}` : formatEvidenceLabel(row.evidence))}
+                            </span>
                             <ChevronRight className="w-4 h-4 text-[#5f708b] group-hover:text-[#2959ea]" />
                           </button>
                         )}
@@ -921,7 +938,7 @@ export const AiWorkspaceView: React.FC = () => {
                             onClick={() => switchRole('student')}
                             className="text-xs sm:text-sm font-bold text-[#2959ea] hover:underline flex items-center gap-1 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-md px-1"
                           >
-                            <span>Xem như học viên</span>
+                            <span>Chuyển sang tài khoản học viên</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -1315,7 +1332,9 @@ export const AiWorkspaceView: React.FC = () => {
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
               <strong className="text-[#2959ea] block">3. Đầu ra (Outputs):</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                Bản thảo đề xuất để giảng viên kiểm duyệt và trợ lý học tập Socratic có trích dẫn nguồn chính xác cho học viên.
+                {isSample
+                  ? 'Bản thảo đề xuất để giảng viên kiểm duyệt và trợ lý học tập có trích dẫn từ học liệu thực hành cho học viên.'
+                  : 'Bản thảo đề xuất để giảng viên kiểm duyệt và trợ lý học tập có trích dẫn từ bài giảng cho học viên.'}
               </p>
             </div>
 

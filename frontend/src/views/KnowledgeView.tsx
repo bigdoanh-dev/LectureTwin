@@ -211,6 +211,7 @@ export const KnowledgeView: React.FC = () => {
               lectureId={currentLectureId}
               seekTarget={videoSeekTarget}
               onClearSeekTarget={clearVideoSeek}
+              sampleAttached={workspace?.lecture.sample_attached}
               selectedEvidence={selectedEvidence}
               defaultEvidence={conceptEvidences[0] || evidences[0] || null}
             />

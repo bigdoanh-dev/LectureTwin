@@ -65,10 +65,11 @@ def login(body: Login, response: Response, request: Request):
     key = request.client.host + ':' + body.username
     recent = [stamp for stamp in LOGIN_ATTEMPTS.get(key, []) if time.time() - stamp < 60]
     if len(recent) >= 10: raise HTTPException(429, 'Thử lại sau một phút')
-    LOGIN_ATTEMPTS[key] = recent + [time.time()]
     user = next((u for u in store.items('users') if u['username'] == body.username), None)
     if not user or not user['is_active'] or not password_valid(body.password, user['password_hash']):
+        LOGIN_ATTEMPTS[key] = recent + [time.time()]
         raise HTTPException(401, 'Thông tin đăng nhập không hợp lệ')
+    LOGIN_ATTEMPTS.pop(key, None)
     store.audit(user, 'LOGIN', 'Đăng nhập demo')
     return issue(user, response)
 
