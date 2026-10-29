@@ -26,6 +26,16 @@ export function buildLessonSummary(workspace: Workspace | null): LessonSummaryRo
 export function latestAnalysis(workspace: Workspace | null): Job | null {
   return workspace?.jobs.find(job => job.workflow === 'analysis' && job.input?.version === workspace.lecture.version) || null;
 }
+export function analysisControl(job: Job | null) {
+  switch (job?.status) {
+    case 'needs_review': return { action: 'review', label: 'Duyệt kết quả phân tích', message: 'Đã đọc học liệu và tạo đề xuất. Hệ thống đang chờ giảng viên kiểm tra nguồn, không bị treo. Duyệt kết quả để hoàn tất bước phân tích.' } as const;
+    case 'paused': return { action: 'resume', label: 'Tiếp tục phân tích', message: 'Lượt phân tích đang tạm dừng. Bấm Tiếp tục phân tích để chạy tiếp từ các bước đã lưu.' } as const;
+    case 'failed': return { action: 'retry', label: 'Thử lại phân tích', message: job.error || 'Lượt phân tích chưa hoàn tất. Bạn có thể thử lại từ bước gặp lỗi.' } as const;
+    case 'queued': case 'running': return { action: 'wait', label: 'Đang phân tích', message: 'Hệ thống đang đọc học liệu và liên kết ý chính với nguồn. Kết quả sẽ cập nhật khi từng bước hoàn tất.' } as const;
+    case 'completed': return { action: 'start', label: 'Phân tích lại', message: 'Đã hoàn tất phân tích. Để thử phân bổ lại thời lượng, mở Thử thay đổi bài học; kết quả mô phỏng được tính riêng.' } as const;
+    default: return { action: 'start', label: 'Bắt đầu phân tích', message: 'Phân tích tạo đề xuất có dẫn nguồn từ học liệu. Thử thay đổi bài học là bước riêng để so sánh phân bổ thời lượng.' } as const;
+  }
+}
 export function lessonWorkflow(workspace: Workspace | null) {
   const job = latestAnalysis(workspace);
   const findings = workspace?.findings || [];

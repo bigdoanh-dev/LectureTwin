@@ -17,6 +17,22 @@ def analyzed(client, teacher):
     return job
 
 
+def test_analysis_reuses_current_review_but_never_an_old_version(client):
+    teacher = login(client)
+    original = analyzed(client, teacher)
+    repeated = post(client, '/lectures/lec-bfs-dfs/analyze', teacher)
+    assert repeated['id'] == original['id']
+    assert repeated['status'] == 'needs_review'
+    # A source update may leave an older review gate in the history.
+    # That historical job must not prevent analysis of the new lecture version.
+    lecture = store.get('lectures', 'lec-bfs-dfs')
+    lecture['version'] += 1
+    store.put('lectures', lecture)
+    fresh = analyzed(client, teacher)
+    assert fresh['id'] != original['id']
+    assert fresh['input']['version'] == lecture['version']
+
+
 def publish_fixture(client, teacher):
     job = analyzed(client, teacher)
     post(client, '/lectures/lec-bfs-dfs/review', teacher, {'exclude_unsupported': True, 'note': 'Xác nhận nguồn mẫu, loại phần không có nguồn.'})

@@ -31,6 +31,7 @@ import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { api } from '../api';
 import { Job, Evidence } from '../types';
+import { analysisControl } from '../presentation';
 
 const AGENT_GUIDES: Record<string, { label: string; purpose: string; input: string; output: string }> = {
   orchestrator: { label: 'Điều phối', purpose: 'Bắt đầu đúng quy trình, lưu trạng thái và chuyển việc giữa các bước.', input: 'Yêu cầu xử lý và phiên bản bài giảng', output: 'Các bước cần chạy và trạng thái lượt xử lý' },
@@ -186,6 +187,12 @@ export const ExecutionCenterView: React.FC = () => {
   const analysisJob = activeJob?.workflow === 'analysis' && activeJob.lecture_id === currentLectureId && activeJob.input?.version === currentLecture?.version
     ? activeJob
     : analysisJobs[0] || null;
+  const analysisCTA = analysisControl(analysisJob);
+  const handleAnalysisAction = () => {
+    if (analysisCTA.action === 'review') setIsReviewModalOpen(true);
+    else if (analysisCTA.action === 'resume' || analysisCTA.action === 'retry') void handleJobControl(analysisCTA.action, analysisJob);
+    else if (analysisCTA.action === 'start') void handleStartAnalysis();
+  };
   const selectedAgentRun = analysisJob?.agents?.find(agentRun => agentRun.agent === selectedAgentId);
   const getAgentStatus = (agentName: string) => analysisJob?.agents?.find(agentRun => agentRun.agent === agentName)?.status || 'idle';
   const findings = workspace?.findings || [];
@@ -331,8 +338,8 @@ export const ExecutionCenterView: React.FC = () => {
           {/* Start Analysis Button */}
           <button
             type="button"
-            onClick={handleStartAnalysis}
-            disabled={actionLoading || analysisJob?.status === 'running'}
+            onClick={handleAnalysisAction}
+            disabled={role !== 'teacher' || !currentLectureId || actionLoading || analysisCTA.action === 'wait'}
             className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
           >
             {actionLoading ? (
@@ -340,10 +347,20 @@ export const ExecutionCenterView: React.FC = () => {
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
-            <span>Bắt đầu phân tích</span>
+            <span>{actionLoading ? 'Đang xử lý…' : analysisCTA.label}</span>
           </button>
         </div>
       </div>
+
+      <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
+        <p className="text-sm font-semibold text-slate-900">{analysisJob ? analysisCTA.label : 'Phân tích và mô phỏng giúp bạn làm gì?'}</p>
+        <p className="text-sm leading-relaxed text-slate-600">{analysisCTA.message}</p>
+        {analysisJob && <p className="text-xs text-slate-600">{analysisJob.agents.filter(agent => agent.status === 'completed').length} bước đã hoàn tất · Kết quả và trạng thái được lưu theo lượt chạy.</p>}
+        <div className="flex flex-wrap gap-2">
+          {role === 'teacher' && analysisCTA.action === 'review' && <button type="button" onClick={() => setIsReviewModalOpen(true)} className="min-h-[44px] rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Duyệt kết quả</button>}
+          {role === 'teacher' && <button type="button" onClick={() => setCurrentView('simulation')} className="min-h-[44px] rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700">Thử thay đổi bài học</button>}
+        </div>
+      </section>
 
       {/* Action Error Banner */}
       {actionError && (

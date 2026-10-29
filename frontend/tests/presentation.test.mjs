@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp } from '../src/presentation.ts';
+import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -14,6 +14,16 @@ function ready() {
   w.jobs = [{id:'actual-job',workflow:'analysis',input:{version:2},status:'completed'}];
   return w;
 }
+test('Analysis offers the next useful action instead of silently restarting a review gate', () => {
+  assert.equal(analysisControl(null).action, 'start');
+  assert.equal(analysisControl({status:'needs_review'}).action, 'review');
+  assert.match(analysisControl({status:'needs_review'}).message, /chờ giảng viên/);
+  assert.equal(analysisControl({status:'paused'}).action, 'resume');
+  assert.equal(analysisControl({status:'failed',error:'Nguồn không tồn tại'}).message, 'Nguồn không tồn tại');
+  assert.equal(analysisControl({status:'failed'}).action, 'retry');
+  for (const status of ['queued', 'running']) assert.equal(analysisControl({status}).action, 'wait');
+  assert.equal(analysisControl({status:'completed'}).label, 'Phân tích lại');
+});
 test('An empty or unprocessed lesson never claims completed AI work', () => {
   const state=lessonWorkflow(workspace());
   assert.equal(state.hasSources,false); assert.equal(state.analyzed,false);

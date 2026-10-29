@@ -37,7 +37,8 @@ import {
   analysisStages,
   formatEvidenceLabel,
   formatTimestamp,
-  currentAssessments
+  currentAssessments,
+  analysisControl
 } from '../presentation';
 import { Evidence, AssessmentQuestion, ScenarioComparison } from '../types';
 
@@ -61,6 +62,7 @@ export const AiWorkspaceView: React.FC = () => {
 
   const shouldReduceMotion = useReducedMotion();
   const workflow = lessonWorkflow(workspace);
+  const analysisCTA = analysisControl(workflow.job);
   const summaryRows = buildLessonSummary(workspace);
   const stages = analysisStages(workspace);
 
@@ -144,8 +146,17 @@ export const AiWorkspaceView: React.FC = () => {
     setActionLoading(true);
     setActionMessage(null);
     try {
+      if (analysisCTA.action === 'review') { setIsReviewModalOpen(true); return; }
+      if (analysisCTA.action === 'wait') return;
+      if ((analysisCTA.action === 'resume' || analysisCTA.action === 'retry') && workflow.job) {
+        const job = await api.controlJob(workflow.job.id, analysisCTA.action);
+        setActiveJob(job);
+        await refreshWorkspace();
+        return;
+      }
       const job = await api.startAnalysis(currentLectureId);
       setActiveJob(job);
+      if (job.status === 'needs_review') setActionMessage(analysisControl(job).message);
       await refreshWorkspace();
     } catch (err: any) {
       setActionMessage(err.detail || err.message || 'Không thể khởi động phân tích.');
@@ -406,6 +417,17 @@ export const AiWorkspaceView: React.FC = () => {
       </div>
 
       {/* Notification Banner */}
+      {workflow.job && ['needs_review', 'paused', 'failed'].includes(workflow.job.status) && (
+        <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
+          <p className="text-sm font-bold text-[#12213b]">{analysisCTA.action === 'review' ? 'Phân tích đã có kết quả — cần bạn kiểm tra' : analysisCTA.label}</p>
+          <p className="text-sm leading-relaxed text-[#5f708b]">{analysisCTA.message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={handleStartAnalysis} disabled={actionLoading} className="min-h-[44px] rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{actionLoading ? 'Đang xử lý…' : analysisCTA.label}</button>
+            <button type="button" onClick={() => setCurrentView('simulation')} className="min-h-[44px] rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-[#2959ea]">Thử thay đổi bài học</button>
+          </div>
+          <p className="text-xs text-[#5f708b]">Phân tích tạo đề xuất có dẫn nguồn. Mô phỏng tính thử cách phân bổ thời lượng và không tự thay đổi bài đang dạy.</p>
+        </section>
+      )}
       {actionMessage && (
         <div className="bg-blue-50 border border-blue-200 text-[#12213b] text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center justify-between">
           <span>{actionMessage}</span>
@@ -729,7 +751,7 @@ export const AiWorkspaceView: React.FC = () => {
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          <span>Chạy thử với bài giảng mẫu</span>
+                          <span>{analysisCTA.label}</span>
                         </>
                       )}
                     </button>

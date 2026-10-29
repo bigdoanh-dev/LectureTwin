@@ -309,7 +309,8 @@ def schedule(job_id):
 
 def create_job(user, lecture, workflow, payload=None, run_async=True):
     with store.LOCK:
-        active = [j for j in store.items('jobs', lecture['id']) if j['owner_id'] == user['id'] and j['workflow'] == workflow and j['status'] in ('queued', 'running', 'paused', 'needs_review')]
+        version = lecture['published_version'] if workflow == 'tutor' and user['role'] == 'student' else lecture['version']
+        active = [j for j in store.items('jobs', lecture['id']) if j['owner_id'] == user['id'] and j['workflow'] == workflow and j['input']['version'] == version and j['status'] in ('queued', 'running', 'paused', 'needs_review')]
         if active:
             return active[-1]
         job = {'id': store.uid('job'), 'lecture_id': lecture['id'], 'owner_id': user['id'], 'workflow': workflow, 'status': 'queued', 'progress': 0,
