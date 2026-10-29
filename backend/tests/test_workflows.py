@@ -278,6 +278,27 @@ def test_question_bank_requires_support_for_the_question_not_just_a_topic_name(c
     assert store.items('assessments','lec-bfs-dfs') == []
 
 
+def test_video_can_receive_companion_captions_after_partial_analysis(client):
+    teacher = login(client)
+    path = '/api/lectures/lec-bfs-dfs'
+    video = store.DATA / 'media' / 'sample-lecture.mp4'
+    uploaded = client.post(path+'/assets',headers=teacher,data={'kind':'video'},files={'file':('my-video.mp4',video.read_bytes(),'video/mp4')})
+    assert uploaded.status_code == 200
+    original_video = next(a for a in uploaded.json()['assets'] if a['kind']=='video')
+    partial = post(client,'/lectures/lec-bfs-dfs/analyze',teacher)
+    assert partial['status']=='needs_review'
+    assert store.get('lectures','lec-bfs-dfs')['concepts']==[]
+    post(client,'/jobs/'+partial['id']+'/control',teacher,{'action':'cancel'})
+    caption = 'WEBVTT\n\n00:00.000 --> 00:10.000\nBFS dùng hàng đợi FIFO để duyệt đồ thị.\n'
+    result=client.post(path+'/assets',headers=teacher,data={'kind':'transcript'},files={'file':('companion.vtt',caption.encode(),'text/vtt')})
+    assert result.status_code==200
+    assert next(a for a in result.json()['assets'] if a['kind']=='video')==original_video
+    full=post(client,'/lectures/lec-bfs-dfs/analyze',teacher)
+    assert full['id']!=partial['id'] and full['status']=='needs_review'
+    lecture=store.get('lectures','lec-bfs-dfs')
+    assert lecture['concepts'] and all(e['time_reference']=='video' and e['end']<=50 for e in lecture['evidence'])
+
+
 def test_real_media_metadata_frames_and_http_range(client):
     lecture = store.get('lectures','lec-published')
     source = ORIGINAL_PROBE(lecture)

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Upload, FileText, Sparkles, ShieldCheck, Check, ArrowRight, RefreshCw, X, AlertTriangle } from 'lucide-react';
+import { Upload, Video, FileText, Sparkles, ShieldCheck, Check, ArrowRight, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
 import { analysisProgress, formatTimestamp, latestAnalysis, lessonWorkflow, uploadFileKind } from '../presentation';
@@ -23,13 +23,20 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
   const [dragging, setDragging] = useState(false);
   const draftTargetRef = useRef('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const supplementInputRef = useRef<HTMLInputElement>(null);
   const reduce = useReducedMotion();
 
   const running = busy || Boolean(job && ['queued', 'running'].includes(job.status));
   const limit = bootstrap?.upload_limit_mb ?? 25;
-  const canReview = userAssets.length > 0 && (workflow.canReview || workflow.reviewed || workflow.published);
+  const existingVideo = userAssets.find(asset => asset.kind === 'video');
+  const hasNewVideo = files.some(file => uploadFileKind(file.name) === 'video');
+  const canSupplement = Boolean(existingVideo && !workflow.hasText && !workflow.published);
+  const supplementing = !hasNewVideo && canSupplement && files.length > 0;
+  const hasContentResults = workflow.analyzed && workflow.hasText && Boolean(workspace?.concepts.length);
+  const canReview = userAssets.length > 0 && (workflow.canReview && hasContentResults || workflow.reviewed || workflow.published);
   const needsNewLecture = Boolean(workspace?.assets.length) || workspace?.lecture.status === 'published' || Boolean(selectedJob && ['queued', 'running', 'paused', 'needs_review'].includes(selectedJob.status));
   const stages = analysisProgress(job).slice(0, 3);
+  const videoReport = job?.agents.find(agent => agent.agent === 'perception')?.output?.result;
 
   const chooseFiles = (incoming: File[]) => {
     setError('');
@@ -44,14 +51,33 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
     }
     setFiles(incoming); setStep(1);
   };
+  const chooseVideo = (incoming: File[]) => {
+    if (incoming.length !== 1 || uploadFileKind(incoming[0].name) !== 'video') {
+      setFiles(files.filter(file => uploadFileKind(file.name) !== 'video'));
+      setError('Chọn một video MP4 ở ô này. Phụ đề và slide được thêm ở mục tài liệu bổ sung bên dưới.');
+      return;
+    }
+    chooseFiles([...incoming, ...files.filter(file => uploadFileKind(file.name) !== 'video')]);
+  };
+  const chooseSupplements = (incoming: File[]) => {
+    if (incoming.some(file => uploadFileKind(file.name) === 'video')) {
+      setError('Video được chọn ở ô tải video phía trên. Mục này dành cho phụ đề VTT/JSON hoặc slide PDF/PPTX.');
+      return;
+    }
+    chooseFiles([...files.filter(file => uploadFileKind(file.name) === 'video'), ...incoming]);
+  };
 
   const uploadAndAnalyze = async () => {
-    if (!files.length) return;
+    if (!files.length || !hasNewVideo && !supplementing) return;
     setBusy(true); setPhase('uploading'); setError('');
-    let targetId = draftTargetRef.current || currentLectureId;
+    let targetId = supplementing ? currentLectureId : draftTargetRef.current || currentLectureId;
     try {
-      if (!draftTargetRef.current && needsNewLecture) {
-        const baseTitle = files[0].name.replace(/\.[^.]+$/, '').trim();
+      if (supplementing && job && ['needs_review', 'paused'].includes(job.status)) {
+        const stopped = await api.controlJob(job.id, 'cancel');
+        setActiveJob(stopped);
+      }
+      if (!supplementing && !draftTargetRef.current && needsNewLecture) {
+        const baseTitle = (files.find(file => uploadFileKind(file.name) === 'video') || files[0]).name.replace(/\.[^.]+$/, '').trim();
         const created = await api.createLecture({
           title: baseTitle.length >= 3 ? baseTitle.slice(0, 160) : `Bài giảng ${baseTitle}`,
           course_id: workspace?.lecture.course_id || bootstrap?.courses[0]?.id || '',
@@ -74,11 +100,12 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
         await Promise.all([refreshWorkspace(), refreshBootstrap()]);
         setFiles([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        if (supplementInputRef.current) supplementInputRef.current.value = '';
       }
     } catch (e: any) {
       setError(e.detail || e.message || 'Chưa hoàn tất tải lên và xử lý. Bạn có thể thử lại.');
       setPhase(null); setStep(1);
-      await refreshBootstrap();
+      await Promise.all([refreshBootstrap(), ...(targetId === currentLectureId ? [refreshWorkspace()] : [])]);
     } finally { setBusy(false); setPhase(null); }
   };
 
@@ -102,14 +129,14 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
     document.getElementById('lecture-source-panel')?.scrollIntoView({ behavior: reduce ? 'instant' : 'smooth', block: 'start' });
   };
   const nav = [
-    { id: 1 as const, title: 'Tải học liệu', hint: phase === 'uploading' ? 'Đang tải tệp lên' : userAssets.length ? `${userAssets.length} tệp đã tải lên` : 'Chọn tệp từ máy tính', icon: Upload, done: Boolean(userAssets.length) },
-    { id: 2 as const, title: 'AI xử lý', hint: running && phase !== 'uploading' ? 'Đang xử lý học liệu' : job && workflow.analyzed ? 'Đã có kết quả' : 'Sau khi tải tệp thành công', icon: Sparkles, done: Boolean(job && workflow.analyzed) },
+    { id: 1 as const, title: 'Tải video', hint: phase === 'uploading' ? 'Đang tải lên' : existingVideo ? 'Video đã tải lên' : 'Chọn video bài giảng MP4', icon: Video, done: Boolean(existingVideo) },
+    { id: 2 as const, title: 'AI xử lý', hint: running && phase !== 'uploading' ? 'Đang xử lý học liệu' : job && workflow.analyzed ? hasContentResults ? 'Đã có kết quả nội dung' : 'Cần bổ sung dữ liệu nội dung' : 'Sau khi tải video thành công', icon: Sparkles, done: Boolean(job && hasContentResults) },
     { id: 3 as const, title: 'Bạn duyệt', hint: canReview && workflow.published ? 'Đã xuất bản' : canReview && workflow.reviewed ? 'Đã duyệt' : canReview ? 'Chờ bạn kiểm tra' : 'Chờ AI xử lý xong', icon: ShieldCheck, done: canReview && (workflow.reviewed || workflow.published) },
   ];
 
   return <section id="lecture-workflow" aria-label="Tải học liệu, AI xử lý và bạn duyệt" className="scroll-mt-28 overflow-hidden rounded-2xl border border-[#dbe4f3] bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-      <p className="text-sm font-bold text-[#12213b]">Từ tệp bài giảng đến nội dung đã duyệt</p>
+      <p className="text-sm font-bold text-[#12213b]">Video bài giảng → AI xử lý → Bạn duyệt</p>
       <div className="min-w-0">
         <label htmlFor="workflow-lecture-picker" className="sr-only">Bài giảng đang xem</label>
         <select id="workflow-lecture-picker" value={currentLectureId} disabled={running} onChange={e => void selectLecture(e.target.value)} className="min-h-[44px] w-full max-w-[320px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#12213b]">
@@ -127,38 +154,47 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
       {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       <motion.div key={step} initial={reduce ? false : { opacity: 0, x: 6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.18 }}>
         {step === 1 && <div className="space-y-4">
-          <div><h2 className="text-lg font-bold text-[#12213b]">1. Tải tệp bài giảng lên</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Chọn video, tài liệu trình chiếu hoặc phụ đề. Tải xong, hệ thống sẽ xử lý các tệp bạn vừa gửi rồi chuyển kết quả sang bước duyệt.</p></div>
-          <label onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); if (!running) chooseFiles(Array.from(event.dataTransfer.files)); }} className={`flex min-h-[150px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-5 text-center ${dragging ? 'border-blue-500 bg-blue-50' : 'border-blue-200 bg-blue-50/40'} ${running ? 'pointer-events-none opacity-60' : 'hover:bg-blue-50'}`}>
+          <div><h2 className="text-lg font-bold text-[#12213b]">1. Tải video bài giảng lên</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Chọn video MP4 làm học liệu chính. Bạn có thể gửi kèm phụ đề hoặc slide để hệ thống đọc nội dung, tạo đề xuất và chuyển cho bạn duyệt.</p></div>
+          <label onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); if (!running) chooseVideo(Array.from(event.dataTransfer.files)); }} className={`flex min-h-[150px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-5 text-center ${dragging ? 'border-blue-500 bg-blue-50' : 'border-blue-200 bg-blue-50/40'} ${running ? 'pointer-events-none opacity-60' : 'hover:bg-blue-50'}`}>
             <Upload className="h-7 w-7 text-[#2959ea]" />
-            <span className="text-sm font-bold text-[#12213b]">Kéo thả tệp vào đây hoặc bấm để chọn</span>
-            <span className="text-xs text-slate-500">MP4 · PDF · PPTX · Phụ đề VTT / JSON · Tối đa {limit} MB/tệp</span>
-            <input ref={fileInputRef} aria-label="Chọn tệp bài giảng" type="file" multiple accept=".mp4,.pdf,.pptx,.vtt,.json" disabled={running} onChange={event => chooseFiles(Array.from(event.target.files || []))} className="sr-only" />
+            <span className="text-sm font-bold text-[#12213b]">Kéo thả video MP4 vào đây hoặc bấm để chọn</span>
+            <span className="text-xs text-slate-500">Video MP4 · Tối đa {limit} MB · Phụ đề và slide thêm riêng bên dưới</span>
+            <input ref={fileInputRef} aria-label="Chọn video bài giảng MP4" type="file" accept=".mp4" disabled={running} onChange={event => chooseVideo(Array.from(event.target.files || []))} className="sr-only" />
           </label>
+          <details open={hasNewVideo || canSupplement} className="rounded-xl border border-slate-200 p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-[#12213b]">Thêm phụ đề hoặc slide đi kèm video</summary>
+            <div className="mt-3 space-y-2">
+              <p className="text-xs leading-relaxed text-slate-500">Phụ đề VTT/JSON hoặc slide PDF/PPTX là tài liệu bổ sung, không thay cho video. Mỗi lần chọn tối đa một tệp phụ đề và một tệp trình chiếu.</p>
+              {canSupplement && !hasNewVideo && <p className="text-xs font-semibold text-blue-700">Bổ sung cho video đang xem: {existingVideo?.name}. Hệ thống giữ video và xử lý lại nội dung sau khi thêm tài liệu.</p>}
+              <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700"><FileText className="h-4 w-4" />Chọn phụ đề / slide<input ref={supplementInputRef} aria-label="Chọn phụ đề hoặc slide bổ sung" type="file" multiple accept=".vtt,.json,.pdf,.pptx" disabled={running} onChange={event => chooseSupplements(Array.from(event.target.files || []))} className="sr-only" /></label>
+            </div>
+          </details>
           {!!files.length && <ul aria-label="Tệp đã chọn" className="space-y-2">{files.map(file => <li key={file.name} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm"><span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-blue-600" /><span className="break-all">{file.name}</span><span className="shrink-0 text-xs text-slate-500">{file.size < 1024 * 1024 ? `${Math.max(1, Math.ceil(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`}</span></span><button type="button" disabled={busy} aria-label={`Bỏ tệp ${file.name}`} onClick={() => setFiles(files.filter(item => item !== file))} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-slate-100"><X className="h-4 w-4" /></button></li>)}</ul>}
-          <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">Nếu tải video, hãy gửi kèm phụ đề VTT/JSON hoặc tài liệu có văn bản để phân tích nội dung. Bản demo chưa tự nghe lời nói, đọc hình trong video hoặc nhận chữ từ trang ảnh.</p>
-          {needsNewLecture && <p className="text-xs text-slate-500">Những tệp được chọn trong lần tải này tạo thành một bài giảng mới. Bài đang xem được giữ nguyên; tệp cũ không tự ghép vào bài mới.</p>}
+          <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">Chỉ có video: hệ thống đọc thông tin tệp và lấy khung hình. Để tạo ý chính, cần thêm phụ đề hoặc slide có văn bản; bản hiện tại chưa tự nhận dạng lời nói hoặc hiểu hình ảnh trong video.</p>
+          {needsNewLecture && !supplementing && <p className="text-xs text-slate-500">Những tệp được chọn trong lần tải này tạo thành một bài giảng mới. Bài đang xem được giữ nguyên; tệp cũ không tự ghép vào bài mới.</p>}
           {!!userAssets.length && <div className="space-y-2"><p className="text-xs font-semibold text-slate-500">Tệp của bài đang xem</p>{userAssets.map(asset => <p key={asset.id} className="flex items-center gap-2 text-sm text-slate-600"><Check className="h-4 w-4 text-emerald-600" />{asset.name}</p>)}</div>}
-          <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={!files.length || running} onClick={uploadAndAnalyze} className={buttonClass}>{busy ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : <ArrowRight className="h-4 w-4" />}{phase === 'uploading' ? 'Đang tải tệp lên…' : 'Tải lên và phân tích'}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={!files.length || !hasNewVideo && !supplementing || running} onClick={uploadAndAnalyze} className={buttonClass}>{busy ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : <ArrowRight className="h-4 w-4" />}{phase === 'uploading' ? 'Đang tải lên…' : supplementing ? 'Bổ sung và xử lý lại video' : 'Tải video và xử lý'}</button></div>
         </div>}
         {step === 2 && <div className="space-y-4">
-          <div><h2 className="text-lg font-bold text-[#12213b]">2. AI xử lý học liệu đã tải lên</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Hệ thống đọc văn bản, tìm ý chính và gắn dẫn chứng. Kết quả vẫn cần bạn kiểm tra trước khi dùng cho học viên.</p></div>
+          <div><h2 className="text-lg font-bold text-[#12213b]">2. Xử lý video và tài liệu đi kèm</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Hệ thống kiểm tra video, đọc văn bản trong phụ đề/slide, tìm ý chính và gắn dẫn chứng. Kết quả vẫn cần bạn kiểm tra trước khi dùng cho học viên.</p></div>
           {phase === 'analyzing' ? <p role="status" className="flex items-center gap-2 rounded-xl bg-blue-50 p-4 text-sm text-blue-800"><RefreshCw className="h-4 w-4 motion-safe:animate-spin" />Đã tải xong tệp. Đang bắt đầu xử lý nội dung…</p> : <>
             <ol className="grid gap-3 lg:grid-cols-3">{stages.map((stage, index) => <li key={stage.id} className={`rounded-xl border p-4 ${stage.status === 'completed' ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-slate-50'}`}><p className="flex items-center gap-2 text-sm font-bold text-[#12213b]">{stage.status === 'completed' ? <Check className="h-4 w-4 text-emerald-600" /> : stage.status === 'running' ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : `${index + 1}.`}{stage.title}</p><p className="mt-2 text-sm leading-relaxed text-slate-600">{stage.detail}</p></li>)}</ol>
-            {!workflow.hasText && job && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Chưa có văn bản để phân tích nội dung. Hệ thống chỉ đọc được thông tin tệp; cần bổ sung phụ đề hoặc tài liệu có văn bản. Chưa có căn cứ để tạo ý chính.</p>}
+            {existingVideo && videoReport && <div className="space-y-3 rounded-xl border border-slate-200 p-3"><p className="flex items-center gap-2 text-sm font-semibold text-[#12213b]"><Video className="h-4 w-4 text-blue-600" />Video đã nhận: {existingVideo.name}</p>{typeof videoReport.duration_seconds === 'number' && <p className="text-xs text-slate-500">Thời lượng video: {formatTimestamp(videoReport.duration_seconds)} · {videoReport.keyframes?.length ?? 0} khung hình được trích</p>}{!!videoReport.keyframes?.length && <div className="grid grid-cols-3 gap-2">{videoReport.keyframes.map((frame: {url: string; timestamp: number}) => <figure key={frame.url}><img src={frame.url} alt={`Khung hình video tại ${formatTimestamp(frame.timestamp)}`} className="aspect-video w-full rounded-lg bg-slate-100 object-contain" loading="lazy" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">{formatTimestamp(frame.timestamp)}</figcaption></figure>)}</div>}</div>}
+            {!workflow.hasText && job && !running && <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><p>Đã tiếp nhận video, nhưng chưa có phụ đề hoặc slide để tạo đề xuất nội dung. Cần bổ sung tài liệu trước khi chuyển sang bước duyệt.</p><button type="button" onClick={() => setStep(1)} className="min-h-[44px] rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold">Bổ sung phụ đề / slide cho video này</button></div>}
             {workflow.hasText && job?.status === 'needs_review' && !workspace?.concepts.length && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Đã đọc tệp nhưng chưa nhận diện được ý chính cho chủ đề này. Bộ xử lý minh họa hiện hỗ trợ nội dung BFS/DFS; cần bổ sung bộ xử lý hoặc nội dung do giảng viên biên soạn.</p>}
             {!!workspace?.concepts.length && <button type="button" onClick={onShowResults} className="min-h-[44px] rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700">Xem {workspace.concepts.length} ý chính và dẫn chứng bên dưới</button>}
             {job?.error && <p role="alert" className="text-sm text-red-700">{job.error}</p>}
           </>}
           <p className="text-xs text-slate-500">Bản demo dùng luật và từ khóa để xử lý văn bản; chưa kết nối mô hình AI bên ngoài.</p>
           <div className="flex flex-wrap justify-end gap-2">
-            {workflow.canReview && <button type="button" onClick={() => setStep(3)} className={buttonClass}>Xem và duyệt kết quả<ArrowRight className="h-4 w-4" /></button>}
+            {workflow.canReview && hasContentResults && <button type="button" onClick={() => setStep(3)} className={buttonClass}>Xem và duyệt kết quả<ArrowRight className="h-4 w-4" /></button>}
             {(!job || ['paused', 'failed', 'cancelled'].includes(job.status)) && <button type="button" disabled={running || !workflow.hasSources} onClick={processExisting} className={buttonClass}>{job?.status === 'failed' ? 'Thử xử lý lại' : job?.status === 'paused' ? 'Tiếp tục xử lý' : 'Phân tích học liệu'}</button>}
           </div>
         </div>}
         {step === 3 && <div className="space-y-4">
           <div><h2 className="text-lg font-bold text-[#12213b]">3. Kiểm tra và duyệt kết quả</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Đọc các đề xuất và đối chiếu nguồn. Chỉ nội dung được bạn chấp nhận mới đưa vào bài dành cho học viên.</p></div>
           <ul className="grid gap-2 sm:grid-cols-2">{workspace?.findings.map(finding => <li key={finding.id} className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${finding.has_evidence ? 'border-slate-200' : 'border-amber-200 bg-amber-50'}`}>{finding.has_evidence ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />}<div><p className="font-semibold text-[#12213b]">{finding.title}</p><p className="mt-1 text-xs text-slate-500">{finding.status === 'confirmed' ? 'Đã chấp nhận' : finding.status === 'rejected' ? 'Đã loại khỏi bài học' : finding.has_evidence ? 'Có nguồn · Chờ bạn xác nhận' : 'Chưa đủ nguồn · Cần bổ sung hoặc loại'}</p></div></li>)}</ul>
-          {workflow.canReview && <button type="button" onClick={onReview} className={buttonClass}>Ghi quyết định duyệt</button>}
+          {workflow.canReview && hasContentResults && <button type="button" onClick={onReview} className={buttonClass}>Ghi quyết định duyệt</button>}
           {workflow.canPublish && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 p-4"><p className="text-sm font-semibold text-emerald-800">Đã lưu quyết định duyệt. Bạn có thể xuất bản cho học viên.</p><button type="button" disabled={busy} onClick={publish} className={buttonClass}>Xuất bản cho học viên</button></div>}
           {workflow.published && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">Đã xuất bản. Học viên có thể sử dụng bài giảng này.</p>}
         </div>}

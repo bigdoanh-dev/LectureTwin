@@ -543,7 +543,7 @@ export const AiWorkspaceView: React.FC = () => {
               {sections.hasUpload && !sections.resultsReady && <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-slate-600">{workflow.running ? 'Đang xử lý học liệu này. Các ý chính sẽ xuất hiện khi có kết quả từ lượt chạy.' : 'Chưa có kết quả cho phiên bản học liệu này. Tiếp tục ở bước 2 trong luồng phía trên.'}</div>}
               {sections.resultsReady && !summaryRows.length && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Chưa tìm được ý chính có dẫn chứng trong tệp này. Xem mục cần bổ sung ở bước 3; hệ thống chưa thể tạo câu hỏi hoặc kế hoạch từ nguồn hiện có.</div>}
               {/* Case E: Analyzed Rows matching Concept PNG layout (Review line 32 typography) */}
-              {sections.resultsReady && !workflow.running && (
+              {sections.resultsReady && summaryRows.length > 0 && !workflow.running && (
                 <div className="space-y-4">
                   <div className="divide-y divide-[#e1e7ef]">
                     {summaryRows.map((row, idx) => (
