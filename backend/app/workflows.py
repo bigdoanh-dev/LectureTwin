@@ -60,6 +60,15 @@ def run_tool(agent, name, data, function):
 
 
 def media_probe(lecture):
+    if lecture.get('sample_attached'):
+        source = next((a for a in lecture.get('assets', []) if a.get('source_type') == 'youtube_reference'), None)
+        if source:
+            return {'status': 'reference_only', 'source_name': source['name'], 'source_url': source['url'],
+                'youtube_video_id': source['youtube_video_id'], 'duration_seconds': source['duration_seconds'],
+                'caption_language': 'en', 'caption_source': 'Phụ đề tự động của YouTube',
+                'annotation_count': len(lecture.get('transcript', [])), 'asr': 'not_run', 'vision': 'not_run',
+                'semantic_source': 'youtube_caption_annotation',
+                'note': 'Chỉ đọc metadata và ghi chú đã biên soạn theo phụ đề; không tải, giải mã hoặc nhận dạng video.'}
     asset = next((a for a in lecture['assets'] if a['kind'] == 'video'), None)
     if not asset:
         return {'status': 'partial', 'reason': 'Chưa có video', 'asr': 'unavailable', 'vision': 'unavailable'}
@@ -94,12 +103,15 @@ def perceive(lecture, agent):
                 '-vn', '-ac', '1', '-ar', '16000', str(output)], capture_output=True, timeout=30, check=True)
             return {'status': 'extracted', 'bytes': output.stat().st_size, 'sample_rate': 16000, 'asr': 'unavailable', 'note': 'Trích xuất âm thanh không phải nhận dạng lời nói.'}
         report['audio'] = run_tool(agent, 'extract_audio', {}, audio)
-    report.update(run_tool(agent, 'read_sources', {}, lambda: {'transcript_segments': len(lecture['transcript']), 'slide_pages': len(lecture['slides'])}))
+    report.update(run_tool(agent, 'read_sources', {}, lambda: {'transcript_segments': len(lecture['transcript']), 'slide_pages': len(lecture['slides']),
+        'source_label': 'Video YouTube tham khảo' if lecture.get('sample_attached') else 'Học liệu đã tải lên',
+        'transcript_note': 'Các mốc là ghi chú tiếng Việt biên soạn từ phụ đề tự động tiếng Anh.' if lecture.get('sample_attached') else 'Văn bản do giảng viên cung cấp hoặc trích từ tài liệu.'}))
     return report
 
 
 def extract_knowledge(lecture):
-    duration = next((a.get('duration_seconds', 0) for a in lecture['assets'] if a['kind'] == 'video'), 0)
+    source_asset = next((a for a in lecture.get('assets', []) if a.get('source_type') == 'youtube_reference'), None)
+    duration = source_asset.get('duration_seconds', 0) if source_asset else next((a.get('duration_seconds', 0) for a in lecture['assets'] if a['kind'] == 'video'), 0)
     evidence, concepts = [], []
     for definition in CONCEPTS:
         citations = []
@@ -108,7 +120,10 @@ def extract_knowledge(lecture):
                 eid = f"ev-{definition['id']}-{source['id']}"
                 evidence.append({'id': eid, 'concept_id': definition['id'], 'kind': 'transcript', 'start': source['start'], 'end': source['end'],
                     'text': source['text'], 'slide_page': next((p['page'] for p in lecture.get('slides', []) if p.get('start') == source['start']), None),
-                    'source_type': source['source_type'], 'valid': bool(duration and 0 <= source['start'] < source['end'] <= duration + .1), 'verified': False})
+                    'source_type': source['source_type'], 'source_url': source_asset['url'] if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
+                    'youtube_video_id': source_asset.get('youtube_video_id') if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
+                    'source_name': source_asset.get('name') if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
+                    'valid': bool(duration and 0 <= source['start'] < source['end'] <= duration + .1), 'verified': False})
                 citations.append(eid)
         for slide in lecture.get('slides', []):
             if any(word in slide['text'].lower() for word in definition['keywords']):
@@ -123,7 +138,7 @@ def extract_knowledge(lecture):
     lecture['edges'] = [deepcopy(e) for e in EDGES if e['source'] in ids and e['target'] in ids]
     store.put('lectures', lecture)
     return {'concept_count': len(concepts), 'evidence_count': len(evidence), 'edge_count': len(lecture['edges']),
-        'method': 'Keyword matching against the explicit BFS/DFS sample vocabulary; not general semantic AI'}
+        'method': 'Đối chiếu từ khóa trong các ghi chú có mốc thời gian; chưa phải hiểu ngữ nghĩa tổng quát.'}
 
 
 def verify_lecture(lecture):

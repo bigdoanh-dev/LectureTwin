@@ -13,13 +13,54 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from . import store, domain, workflows
 from .auth import current_user, require_role, lecture_access, public_user, password_valid, password_hash, issue, DEMO_MODE
-from .fixtures import seed, sample_sources, new_lecture, AGENTS, PROVIDER_NOTE
+from .fixtures import seed, sample_sources, new_lecture, AGENTS, PROVIDER_NOTE, SAMPLE_DATA_REVISION
+
+
+def migrate_seeded_youtube_samples():
+    """Refresh sample-backed demo lessons that still use the old 50s source fixture."""
+    for lecture in store.items('lectures'):
+        lecture_id = lecture.get('id')
+        if not lecture_id or not lecture.get('sample_attached'):
+            continue
+        has_youtube_reference = any(asset.get('source_type') == 'youtube_reference' for asset in lecture.get('assets', []))
+        has_youtube_notes = bool(lecture.get('transcript')) and all(
+            row.get('source_type') == 'youtube_caption_annotation' for row in lecture.get('transcript', [])
+        )
+        sample_revision_matches = lecture.get('sample_data_revision') == SAMPLE_DATA_REVISION
+        should_reopen_for_review = lecture_id != 'lec-published' and lecture.get('status') == 'published' and lecture.get('published_version') != lecture.get('version')
+        if has_youtube_reference and has_youtube_notes and sample_revision_matches and not should_reopen_for_review:
+            continue
+
+        lecture['version'] = int(lecture.get('version', 1)) + 1
+        sample_sources(lecture)
+        lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[], coverage=[])
+        domain.snapshot(lecture, 'youtube_source_updated', 'Thay ghi chú minh họa cũ bằng ghi chú có mốc theo video YouTube BFS/DFS.')
+
+        if lecture_id == 'lec-published':
+            workflows.extract_knowledge(lecture)
+            workflows.verify_lecture(lecture)
+            for evidence in lecture['evidence']:
+                evidence['verified'] = bool(evidence['valid'])
+            for concept in lecture['concepts']:
+                concept['verified'] = True
+            for finding in lecture['findings']:
+                finding.update(status='confirmed' if finding['has_evidence'] else 'rejected',
+                    note='Nội dung mẫu đã được biên soạn theo phụ đề video và chuẩn bị sẵn để trải nghiệm.')
+            lecture.update(status='published', published_version=lecture['version'], analysis_version=lecture['version'])
+            domain.snapshot(lecture, 'prepared_publication', 'Bản học liệu mẫu đã được cập nhật theo video YouTube và ghi chú có mốc.')
+            lecture['published_payload'] = domain.publication_payload(lecture)
+        else:
+            lecture.update(status='draft', published_version=None)
+            lecture.pop('published_payload', None)
+
+        store.put('lectures', lecture)
 
 
 @asynccontextmanager
 async def lifespan(app):
     store.initialize()
     seed()
+    migrate_seeded_youtube_samples()
     for job in store.items('jobs'):
         if job['status'] in ('running', 'queued'):
             job.update(status='paused', error='Server đã khởi động lại; tác vụ được giữ để người dùng tiếp tục.')
@@ -156,8 +197,8 @@ def attach_sample(lid: str, user=Depends(current_user)):
     ensure_editable(lecture)
     sample_sources(lecture)
     lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[])
-    domain.snapshot(lecture, 'sample_attached', 'Gắn nguồn BFS/DFS đã chuẩn bị, không phải kết quả ASR')
-    store.audit(user, 'ATTACH_SAMPLE', 'Nguồn mẫu 50 giây', lid)
+    domain.snapshot(lecture, 'sample_attached', 'Gắn video YouTube BFS/DFS và ghi chú tiếng Việt biên soạn theo phụ đề tự động; chưa chạy ASR/vision')
+    store.audit(user, 'ATTACH_SAMPLE', 'Video YouTube Abdul Bari · BFS/DFS', lid)
     return domain.workspace(lecture, user)
 
 
@@ -165,7 +206,7 @@ def attach_sample(lid: str, user=Depends(current_user)):
 def video(lid: str, user=Depends(current_user)):
     lecture = lecture_access(user, lid)
     data = lecture.get('published_payload', {}) if user['role'] == 'student' else lecture
-    asset = next((a for a in data.get('assets', []) if a['kind'] == 'video'), None)
+    asset = next((a for a in data.get('assets', []) if a['kind'] == 'video' and a.get('source_type') != 'youtube_reference'), None)
     if not asset: raise HTTPException(404, 'Chưa có video')
     path = store.DATA / 'media' / Path(asset['path']).name
     if not path.is_file(): raise HTTPException(404, 'Chưa dựng video mẫu; chạy npm run setup')

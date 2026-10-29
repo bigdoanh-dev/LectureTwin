@@ -356,7 +356,7 @@ export const AiWorkspaceView: React.FC = () => {
   // Honest media caption
   const isSample = Boolean(workspace?.lecture.sample_attached);
   const videoCaption = isSample
-    ? 'Video bài giảng tham khảo và học liệu thực hành 50 giây'
+    ? `Học liệu thực hành · 18:29 · ${workspace?.transcript.length ?? 0} ghi chú theo mốc`
     : (workspace?.assets.some(a => a.kind === 'video')
       ? 'Video bài giảng đã tải lên'
       : 'Học liệu bài giảng');
@@ -381,7 +381,7 @@ export const AiWorkspaceView: React.FC = () => {
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
             {isSample
-              ? 'Các gợi ý hiện được tạo từ học liệu thực hành đã biên soạn; giảng viên kiểm tra trước khi xuất bản.'
+              ? 'Gợi ý minh họa dựa trên ghi chú của học liệu thực hành; giảng viên kiểm tra trước khi xuất bản.'
               : 'AI đề xuất nội dung từ bài giảng và tài liệu tải lên; giảng viên kiểm tra trước khi xuất bản.'}
           </p>
         </div>
@@ -519,7 +519,7 @@ export const AiWorkspaceView: React.FC = () => {
         {/* LEFT 43% (~5 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
         <div className="lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
           <h2 className="font-bold text-[20px] text-[#12213b]">
-            Video và học liệu
+            Học liệu thực hành
           </h2>
 
           {/* Embedded Native Video Player (NO nested card wrapper) */}
@@ -529,6 +529,8 @@ export const AiWorkspaceView: React.FC = () => {
             seekTarget={videoSeekTarget}
             onClearSeekTarget={clearVideoSeek}
             sampleAttached={workspace?.lecture.sample_attached}
+            selectedEvidence={selectedEvidence}
+            defaultEvidence={defaultEvidence}
           />
 
           {/* Video Caption */}
@@ -540,7 +542,7 @@ export const AiWorkspaceView: React.FC = () => {
           <div className="bg-[#f0f5ff] rounded-xl p-4 border border-blue-100 space-y-1.5">
             <div className="text-xs font-bold text-[#12213b]">
               {isSample
-                ? 'Trích đoạn học liệu thực hành'
+                ? 'Ghi chú học liệu thực hành'
                 : (currentEvidence?.kind === 'slide' ? 'Trích dẫn trang slide' : 'Trích đoạn nguồn bài giảng')}
             </div>
 
@@ -551,14 +553,14 @@ export const AiWorkspaceView: React.FC = () => {
                 </p>
                 <div className="text-xs text-[#5f708b] font-medium pt-0.5">
                   {formatEvidenceLabel(currentEvidence)} · {isSample
-                    ? 'Ghi chú chuẩn bị sẵn, không trích xuất trực tiếp từ YouTube'
+                    ? 'Diễn giải thủ công từ phụ đề tự động tiếng Anh; chưa chạy nhận dạng giọng nói hoặc hình ảnh'
                     : (currentEvidence.kind === 'slide' ? 'Nội dung trang slide đã chuẩn bị' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
                 </div>
               </>
             ) : (
               <p className="text-xs text-[#5f708b] italic">
                 {isSample
-                  ? 'Bấm vào liên kết mốc thời gian ở cột bên phải để đối chiếu ngay trên học liệu thực hành.'
+                  ? 'Chọn một ý chính bên phải để mở học liệu tại đúng mốc tương ứng.'
                   : 'Bấm vào liên kết mốc thời gian ở cột bên phải để đối chiếu trên bài giảng.'}
               </p>
             )}
@@ -569,7 +571,7 @@ export const AiWorkspaceView: React.FC = () => {
             <FileText className="w-4 h-4 text-[#5f708b] shrink-0" />
             <span>
               {isSample
-                ? 'Video tham khảo YouTube cùng học liệu thực hành và slide đã chuẩn bị.'
+                ? 'Học liệu thực hành gồm video và ghi chú theo mốc thời gian.'
                 : 'Video và tài liệu bài giảng đã tải lên.'}
             </span>
           </div>
@@ -686,7 +688,7 @@ export const AiWorkspaceView: React.FC = () => {
                       <div>
                         <h4 className="font-bold text-sm text-[#12213b]">Tóm tắt có dẫn nguồn</h4>
                         <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Tự động bóc tách các khái niệm trọng tâm gắn liền mốc thời gian video và slide.
+                          Dò từ khóa trong ghi chú đã có, rồi gắn ý chính với mốc video để giảng viên đối chiếu. Bản demo chưa tự nghe hoặc đọc hình ảnh.
                         </p>
                       </div>
                     </div>
@@ -696,7 +698,7 @@ export const AiWorkspaceView: React.FC = () => {
                       <div>
                         <h4 className="font-bold text-sm text-[#12213b]">Câu hỏi từ bài giảng</h4>
                         <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Tự động đề xuất bộ trắc nghiệm kiểm tra độ hiểu của học viên bám sát nội dung.
+                          Soạn câu hỏi nháp từ nội dung và đáp án mẫu để giảng viên xem lại trước khi giao; kết quả không tự kết luận học viên đã hiểu bài.
                         </p>
                       </div>
                     </div>
@@ -706,7 +708,7 @@ export const AiWorkspaceView: React.FC = () => {
                       <div>
                         <h4 className="font-bold text-sm text-[#12213b]">Trợ lý cho học viên</h4>
                         <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Cung cấp AI Tutor trả lời câu hỏi và dẫn nguồn video chính xác khi người học thắc mắc.
+                          Giúp học viên tìm câu trả lời trong nội dung đã được giảng viên duyệt và mở lại mốc nguồn liên quan.
                         </p>
                       </div>
                     </div>
@@ -866,7 +868,9 @@ export const AiWorkspaceView: React.FC = () => {
                             <LinkIcon className="w-3.5 h-3.5" />
                             <span>
                               {isSample
-                                ? `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
+                                ? row.evidence.source_type === 'youtube_caption_annotation'
+                                  ? `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
+                                  : `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
                                 : (row.evidence.kind === 'slide' ? `Slide trang ${row.evidence.slide_page ?? 1}` : formatEvidenceLabel(row.evidence))}
                             </span>
                             <ChevronRight className="w-4 h-4 text-[#5f708b] group-hover:text-[#2959ea]" />
@@ -1261,7 +1265,7 @@ export const AiWorkspaceView: React.FC = () => {
           className="text-[#5f708b] hover:text-[#2959ea] font-medium flex items-center gap-1.5 transition-colors cursor-pointer group focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-md px-1 py-0.5"
         >
           <ChevronDown className="w-4 h-4 text-[#5f708b] group-hover:text-[#2959ea]" />
-          <span>Xem chi tiết cách xử lý</span>
+          <span>Xem nguồn và cách tạo gợi ý</span>
         </button>
 
         {/* Clickable Info Button: literally includes "AI được dùng ở đâu?" per review line 24 */}
@@ -1316,24 +1320,24 @@ export const AiWorkspaceView: React.FC = () => {
 
           <div className="space-y-3 leading-relaxed">
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
-              <strong className="text-[#2959ea] block">1. Đầu vào (Inputs):</strong>
+              <strong className="text-[#2959ea] block">1. Nguồn đưa vào:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                Video bài giảng trích đoạn, chú giải theo thời gian và các trang slide bài giảng do giảng viên tải lên.
+                Video tham khảo YouTube, ghi chú theo mốc thời gian hoặc học liệu do giảng viên cung cấp. Bản demo chưa tự nhận dạng video.
               </p>
             </div>
 
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
-              <strong className="text-[#2959ea] block">2. Xử lý minh họa (Rule-based Agents):</strong>
+              <strong className="text-[#2959ea] block">2. Cách xử lý trong bản demo:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                Các tác nhân liên kết ý chính với dẫn chứng nguồn, đối chiếu căn cứ thời gian và soạn câu hỏi trắc nghiệm bằng bộ công cụ xác định.
+                Quy tắc có sẵn dò từ khóa trong ghi chú, gắn ý chính với mốc nguồn và chọn câu hỏi mẫu. Demo chưa gọi mô hình AI bên ngoài, chưa tự nghe lời thoại hoặc đọc hình ảnh.
               </p>
             </div>
 
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
-              <strong className="text-[#2959ea] block">3. Đầu ra (Outputs):</strong>
+              <strong className="text-[#2959ea] block">3. Kết quả bạn nhận được:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
                 {isSample
-                  ? 'Bản thảo đề xuất để giảng viên kiểm duyệt và trợ lý học tập có trích dẫn từ học liệu thực hành cho học viên.'
+                  ? 'Bản thảo đề xuất để giảng viên kiểm duyệt; học viên có thể mở học liệu thực hành tại mốc được dẫn nguồn.'
                   : 'Bản thảo đề xuất để giảng viên kiểm duyệt và trợ lý học tập có trích dẫn từ bài giảng cho học viên.'}
               </p>
             </div>

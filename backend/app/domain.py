@@ -120,7 +120,7 @@ def create_questions(lecture):
     verified = {c['id'] for c in lecture['concepts'] if c.get('verified')}
     definitions = [
         ('q-bfs', 'BFS sử dụng cấu trúc dữ liệu nào để duyệt theo lớp?', 'bfs', [('a', 'Hàng đợi FIFO'), ('b', 'Ngăn xếp LIFO'), ('c', 'Không cần lưu đỉnh chờ')], 'a', 'BFS lưu các đỉnh chờ trong hàng đợi vào trước ra trước.'),
-        ('q-dfs', 'DFS trên đồ thị mẫu duyệt các đỉnh theo thứ tự nào (kề theo chữ cái)?', 'dfs', [('a', 'A B C D E F'), ('b', 'A B D E C F'), ('c', 'A F E D C B')], 'b', 'DFS đi sâu từ A qua B, D rồi quay lui qua E, sau đó mới đến C và F.'),
+        ('q-dfs', 'Theo video, DFS làm gì khi vừa gặp một đỉnh mới chưa thăm?', 'dfs', [('a', 'Tạm dừng nhánh hiện tại và đi sâu từ đỉnh mới'), ('b', 'Luôn xét hết mọi đỉnh cùng tầng trước'), ('c', 'Bỏ qua đỉnh mới và kết thúc')], 'a', 'DFS ưu tiên đi sâu theo nhánh mới; khi nhánh không còn đỉnh kề chưa thăm thì quay lui.'),
         ('q-visited', 'Vì sao cần đánh dấu đỉnh đã thăm?', 'graph', [('a', 'Để thay đổi cạnh của đồ thị'), ('b', 'Để tránh xử lý lặp lại các đỉnh'), ('c', 'Để biến DFS thành BFS')], 'b', 'Bộ đánh dấu đã thăm giúp tránh lặp lại các đỉnh trong quá trình duyệt.'),
     ]
     questions = []

@@ -71,6 +71,9 @@ export interface Evidence {
   text: string;
   slide_page?: number;
   source_type: string;
+  source_url?: string | null;
+  youtube_video_id?: string | null;
+  source_name?: string | null;
   verified: boolean;
   valid: boolean;
 }
@@ -250,6 +253,7 @@ export interface Workspace {
     source_type: string;
     url?: string;
     duration_seconds?: number;
+    youtube_video_id?: string;
     notes?: string;
   }>;
   transcript: Array<{

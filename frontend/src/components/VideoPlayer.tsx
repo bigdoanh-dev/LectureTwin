@@ -5,9 +5,7 @@ import {
   AlertCircle,
   RefreshCw,
   FileText,
-  ExternalLink,
-  Youtube,
-  PlayCircle
+  ExternalLink
 } from 'lucide-react';
 import { Evidence } from '../types';
 
@@ -37,14 +35,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingSeekRef = useRef<number | null>(null);
 
-  // Tab state: 'youtube' | 'practice' (defaults to youtube only if sampleAttached is true)
-  const [activeTab, setActiveTab] = useState<'youtube' | 'practice'>(
-    sampleAttached ? 'youtube' : 'practice'
-  );
+  const [youtubeSeekRequest, setYoutubeSeekRequest] = useState<{ seconds: number; revision: number } | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [hasVideoError, setHasVideoError] = useState<boolean>(false);
   const [retryKey, setRetryKey] = useState<number>(0);
+  const activeEvidence = selectedEvidence || defaultEvidence;
+  const isSlideOnly = activeEvidence?.kind === 'slide';
 
   // Reset video state when lecture or sampleAttached changes
   useEffect(() => {
@@ -52,7 +49,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setDuration(0);
     setHasVideoError(false);
     pendingSeekRef.current = null;
-    setActiveTab(sampleAttached ? 'youtube' : 'practice');
+    setYoutubeSeekRequest(null);
     if (videoRef.current) {
       videoRef.current.load();
     }
@@ -61,12 +58,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Handle external seek target (evidence citation / transcript click)
   useEffect(() => {
     if (seekTarget !== undefined && seekTarget !== null) {
-      pendingSeekRef.current = seekTarget;
-      // If currently on YouTube tab, switch to practice tab
-      if (activeTab !== 'practice') {
-        setActiveTab('practice');
+      if (sampleAttached) {
+        setYoutubeSeekRequest((previous) => ({ seconds: Math.floor(seekTarget), revision: (previous?.revision ?? 0) + 1 }));
+        if (onClearSeekTarget) onClearSeekTarget();
+        return;
       }
-
+      pendingSeekRef.current = seekTarget;
       if (videoRef.current && videoRef.current.readyState >= 1) {
         try {
           videoRef.current.currentTime = seekTarget;
@@ -78,23 +75,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
-  }, [seekTarget, onClearSeekTarget, activeTab]);
-
-  // When switching to practice tab with a pending seek, apply seek once videoRef is mounted and ready
-  useEffect(() => {
-    if (activeTab === 'practice' && pendingSeekRef.current !== null && videoRef.current) {
-      if (videoRef.current.readyState >= 1) {
-        try {
-          videoRef.current.currentTime = pendingSeekRef.current;
-          setCurrentTime(pendingSeekRef.current);
-          pendingSeekRef.current = null;
-          if (onClearSeekTarget) onClearSeekTarget();
-        } catch (err) {
-          console.warn('Pending seek apply error:', err);
-        }
-      }
-    }
-  }, [activeTab, onClearSeekTarget]);
+  }, [seekTarget, onClearSeekTarget, sampleAttached]);
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
@@ -126,9 +107,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  const activeEvidence = selectedEvidence || defaultEvidence;
-  const isSlideOnly = activeEvidence?.kind === 'slide';
-
   const formatSeconds = (sec: number | undefined | null) => {
     if (sec === undefined || sec === null || isNaN(sec)) return '--:--';
     const m = Math.floor(sec / 60);
@@ -137,8 +115,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const seekToEvidence = (seconds: number) => {
+    if (sampleAttached) {
+      setYoutubeSeekRequest((previous) => ({ seconds: Math.floor(seconds), revision: (previous?.revision ?? 0) + 1 }));
+      return;
+    }
     pendingSeekRef.current = seconds;
-    setActiveTab('practice');
     if (videoRef.current && videoRef.current.readyState >= 1) {
       try {
         videoRef.current.currentTime = seconds;
@@ -152,12 +133,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const videoSrc = `/api/lectures/${lectureId}/video`;
 
-  // Render YouTube Player Panel (Abdul Bari BFS/DFS reference)
+  // Render the real YouTube source used by the curated, time-stamped notes.
   const renderYouTubePlayer = () => (
     <div className="space-y-2.5">
       <div className="relative rounded-xl overflow-hidden bg-slate-950 aspect-video flex items-center justify-center border border-slate-800">
         <iframe
-          src="https://www.youtube-nocookie.com/embed/pcKY4hjDrxk"
+          key={youtubeSeekRequest?.revision ?? 0}
+          src={`https://www.youtube-nocookie.com/embed/pcKY4hjDrxk?start=${youtubeSeekRequest?.seconds ?? 0}&autoplay=${youtubeSeekRequest ? 1 : 0}`}
           title="5.1 Graph Traversals - BFS & DFS - Abdul Bari"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
@@ -170,10 +152,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div className="space-y-1">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-[#5f708b] gap-1 px-0.5">
           <span className="font-medium text-[#12213b]">
-            Bài giảng gốc: Abdul Bari · 5.1 Graph Traversals - BFS & DFS (18:30)
+            Nguồn: Abdul Bari · 5.1 Graph Traversals - BFS & DFS (18:29)
           </span>
           <a
-            href="https://www.youtube.com/watch?v=pcKY4hjDrxk"
+            href={`https://www.youtube.com/watch?v=pcKY4hjDrxk${activeEvidence?.start != null ? `&t=${Math.floor(activeEvidence.start)}s` : ''}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[#2959ea] hover:text-blue-800 font-semibold"
@@ -183,7 +165,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </a>
         </div>
         <p className="text-[11px] sm:text-xs text-[#5f708b] italic px-0.5 leading-relaxed">
-          Video tham khảo YouTube · phần phân tích hiện dùng học liệu thực hành đã biên soạn.
+          Ghi chú tiếng Việt được biên soạn theo phụ đề tự động tiếng Anh của video. Demo chưa tự nghe hoặc phân tích hình ảnh.
         </p>
       </div>
     </div>
@@ -236,10 +218,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       <div className="flex items-center justify-between text-xs text-[#5f708b] px-0.5">
         <span className="font-semibold text-slate-700">
-          {sampleAttached ? 'Học liệu thực hành được biên soạn riêng' : 'Video đã tải lên'}
+          Video đã tải lên
         </span>
         <span className="font-mono text-[11px]">
-          {currentTime > 0 ? formatSeconds(currentTime) : '00:00'} / {duration > 0 ? formatSeconds(duration) : (sampleAttached ? '00:50' : '--:--')}
+          {currentTime > 0 ? formatSeconds(currentTime) : '00:00'} / {duration > 0 ? formatSeconds(duration) : '--:--'}
         </span>
       </div>
     </div>
@@ -249,41 +231,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   if (variant === 'embedded') {
     return (
       <div className="space-y-2.5">
-        {/* Two-tab Switch: Only show for sample attached lectures */}
-        {sampleAttached ? (
-          <div className="flex items-center p-1 bg-[#f0f4f9] rounded-xl border border-[#e1e7ef] w-full">
-            <button
-              type="button"
-              onClick={() => setActiveTab('youtube')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
-                activeTab === 'youtube'
-                  ? 'bg-white text-[#2959ea] shadow-xs'
-                  : 'text-[#5f708b] hover:text-[#12213b]'
-              }`}
-            >
-              <Youtube className="w-4 h-4 text-red-600" />
-              <span>Bài giảng YouTube</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('practice')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
-                activeTab === 'practice'
-                  ? 'bg-white text-[#2959ea] shadow-xs'
-                  : 'text-[#5f708b] hover:text-[#12213b]'
-              }`}
-            >
-              <PlayCircle className="w-4 h-4 text-[#2959ea]" />
-              <span>Học liệu thực hành</span>
-            </button>
-          </div>
-        ) : null}
-
-        {/* Tab content */}
-        {sampleAttached && activeTab === 'youtube'
-          ? renderYouTubePlayer()
-          : renderPracticePlayer()
-        }
+        {sampleAttached ? renderYouTubePlayer() : renderPracticePlayer()}
       </div>
     );
   }
@@ -296,7 +244,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="flex items-center space-x-2">
           <Video className="w-4 h-4 text-[#2959ea]" />
           <h3 className="font-extrabold text-sm text-[#12213b]">
-            Bằng chứng đối chiếu
+            Học liệu thực hành
           </h3>
         </div>
 
@@ -316,62 +264,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         ) : (
           <span className="text-xs text-[#5f708b] bg-slate-50 px-2 py-0.5 rounded-md">
-            Chưa chọn bằng chứng
+            Chưa chọn đoạn nguồn
           </span>
         )}
       </div>
 
-      {/* Two-tab Switch (sampleAttached only) */}
-      {sampleAttached && (
-        <div className="flex items-center p-1 bg-[#f0f4f9] rounded-xl border border-[#e1e7ef] w-full">
-          <button
-            type="button"
-            onClick={() => setActiveTab('youtube')}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
-              activeTab === 'youtube'
-                ? 'bg-white text-[#2959ea] shadow-xs'
-                : 'text-[#5f708b] hover:text-[#12213b]'
-            }`}
-          >
-            <Youtube className="w-4 h-4 text-red-600" />
-            <span>Bài giảng YouTube</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('practice')}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
-              activeTab === 'practice'
-                ? 'bg-white text-[#2959ea] shadow-xs'
-                : 'text-[#5f708b] hover:text-[#12213b]'
-            }`}
-          >
-            <PlayCircle className="w-4 h-4 text-[#2959ea]" />
-            <span>Học liệu thực hành</span>
-          </button>
-        </div>
-      )}
+      {sampleAttached ? renderYouTubePlayer() : renderPracticePlayer()}
 
-      {/* Player display */}
-      {sampleAttached && activeTab === 'youtube'
-        ? renderYouTubePlayer()
-        : renderPracticePlayer()
-      }
-
-      {/* Video metadata distinction */}
-      <div className="flex items-center justify-between text-xs text-[#5f708b] px-0.5">
-        <span>
-          {sampleAttached
-            ? `Trích đoạn học liệu thực tế: ${duration > 0 ? formatSeconds(duration) : '00:50'}`
-            : `Thời lượng video: ${duration > 0 ? formatSeconds(duration) : '--:--'}`}
-        </span>
-        <span>{sampleAttached ? 'Kế hoạch bài giảng: 50 phút' : 'Video bài giảng đã tải lên'}</span>
+      <div className="text-xs text-[#5f708b] px-0.5">
+        {sampleAttached ? 'Thời lượng học liệu: 18:29' : `Thời lượng video: ${duration > 0 ? formatSeconds(duration) : '--:--'}`}
       </div>
 
       {/* Synchronized Quote Box */}
       <div className="bg-[#f6f8fc] border-l-4 border-[#2959ea] rounded-r-xl p-3 text-xs leading-relaxed text-[#12213b] font-medium space-y-1">
         <div className="text-[11px] font-bold text-[#5f708b]">
           {sampleAttached
-            ? 'Trích đoạn học liệu thực hành'
+            ? 'Ghi chú học liệu thực hành'
             : (isSlideOnly ? 'Trích dẫn trang slide' : 'Trích đoạn nguồn bài giảng')}
         </div>
         {activeEvidence?.text ? (
@@ -387,7 +295,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div className="flex items-center justify-between pt-1 text-xs text-[#5f708b]">
         <span>
           {sampleAttached
-            ? 'Ghi chú: Nội dung đối chiếu từ học liệu thực hành đã biên soạn sẵn.'
+            ? 'Nguồn nội dung: ghi chú thủ công theo phụ đề tự động của Abdul Bari; bản demo chưa tự nhận dạng lời nói hoặc phân tích hình ảnh.'
             : 'Ghi chú: Video do giảng viên tải lên.'}
         </span>
 
@@ -398,7 +306,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             className="text-[#2959ea] hover:text-blue-800 font-semibold text-xs flex items-center space-x-1 cursor-pointer transition-colors"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span>Tua đến mốc này ({formatSeconds(activeEvidence.start)})</span>
+            <span>{sampleAttached && activeEvidence.source_type === 'youtube_caption_annotation' ? 'Mở video tại' : 'Tua đến'} mốc {formatSeconds(activeEvidence.start)}</span>
           </button>
         )}
       </div>

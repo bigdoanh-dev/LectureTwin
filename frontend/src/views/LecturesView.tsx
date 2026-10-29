@@ -92,7 +92,7 @@ export const LecturesView: React.FC = () => {
       await api.attachSample(id);
       await refreshBootstrap();
       await refreshWorkspace();
-      setMsg('Đã gắn dữ liệu mẫu BFS & DFS (Video trích đoạn 50s + Slide JSON) thành công.');
+      setMsg('Đã gắn học liệu thực hành BFS & DFS cùng 8 ghi chú theo mốc.');
     } catch (err: any) {
       setErrorMsg(err.detail || err.message || 'Lỗi gắn dữ liệu mẫu');
     } finally {
@@ -252,7 +252,7 @@ export const LecturesView: React.FC = () => {
                 </div>
                 <div className="bg-[#f6f8fc] p-2.5 rounded-lg border border-[#e1e7ef]">
                   <span className="text-xs text-[#5f708b] block">Học liệu mẫu</span>
-                  <strong className="text-[#12213b]">{lec.sample_attached ? 'Video 50s + Slide' : 'Chưa gắn'}</strong>
+                  <strong className="text-[#12213b]">{lec.sample_attached ? 'Học liệu thực hành' : 'Chưa gắn'}</strong>
                 </div>
               </div>
 

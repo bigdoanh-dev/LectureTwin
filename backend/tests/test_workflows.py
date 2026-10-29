@@ -70,7 +70,7 @@ def test_graph_search_and_tutor_verified_sources(client):
     assert tutor['status'] == 'completed'
     assert [a['agent'] for a in tutor['agents']] == ['orchestrator','knowledge','tutor','verification']
     assert tutor['result']['citations']
-    assert all(e['verified'] and e['valid'] and e['end'] <= 50 for e in tutor['result']['citations'])
+    assert all(e['verified'] and e['valid'] and e['end'] <= 1109 and e['source_type'] == 'youtube_caption_annotation' for e in tutor['result']['citations'])
     outside = post(client, '/lectures/lec-published/tutor', student, {'question': 'Lập kế hoạch du lịch cho tôi'})
     assert outside['result']['citations'] == []
     assert 'Chưa có nguồn' in outside['result']['answer']
@@ -92,7 +92,7 @@ def test_assessment_approval_grading_privacy_and_evaluated_state(client):
     data = client.get('/api/lectures/lec-published', headers=student).json()
     questions = data['assessments'][0]['questions']
     assert all('correct_option_id' not in q and 'explanation' not in q for q in questions)
-    answers = {'q-bfs':'a', 'q-dfs':'b', 'q-visited':'b'}
+    answers = {'q-bfs':'a', 'q-dfs':'a', 'q-visited':'b'}
     attempt = post(client, '/assessments/' + aid + '/submit', student, {'answers': answers})
     assert attempt['score'] == 100 and attempt['correct_count'] == 3
     own = client.get('/api/lectures/lec-published/analytics', headers=student).json()
@@ -139,7 +139,14 @@ def test_upload_invalid_and_new_video_cannot_inherit_sample_annotations(client):
 
 
 def test_real_media_metadata_frames_and_http_range(client):
-    report = ORIGINAL_PROBE(store.get('lectures','lec-published'))
+    lecture = store.get('lectures','lec-published')
+    source = ORIGINAL_PROBE(lecture)
+    assert source['status'] == 'reference_only' and source['duration_seconds'] == 1109
+    assert source['asr'] == source['vision'] == 'not_run' and source['annotation_count'] == 8
+    local = deepcopy(lecture)
+    local['sample_attached'] = False
+    local['assets'] = [a for a in local['assets'] if a.get('source_type') != 'youtube_reference']
+    report = ORIGINAL_PROBE(local)
     assert len(report['keyframes']) == 3 and report['asr'] == report['vision'] == 'unavailable'
     # Exercise the actual FFmpeg tool, not the stub used by orchestration unit tests.
     import subprocess

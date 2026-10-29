@@ -122,12 +122,12 @@ export const AssessmentView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
-            {role === 'teacher' ? 'Lớp học & Đánh giá năng lực' : 'Bài kiểm tra năng lực'}
+            {role === 'teacher' ? 'Bài kiểm tra và kết quả học viên' : 'Bài kiểm tra của bạn'}
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
             {role === 'teacher'
-              ? 'Thống kê kết quả học tập thực tế và xem lại bộ câu hỏi kiểm tra có dẫn chứng.'
-              : 'Làm bài kiểm tra chẩn đoán để đối chiếu kiến thức và xem giải thích chi tiết.'}
+              ? 'Tạo câu hỏi, giao bài và xem số lượt nộp cùng kết quả thực tế của học viên.'
+              : 'Làm bài kiểm tra đã được giảng viên giao và xem giải thích sau khi nộp.'}
           </p>
         </div>
 
@@ -156,32 +156,35 @@ export const AssessmentView: React.FC = () => {
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3">
           <h2 className="font-bold text-sm sm:text-base text-[#12213b] flex items-center gap-2">
             <BarChart2 className="w-4 h-4 text-[#2959ea]" />
-            <span>Thống kê kết quả học tập thực tế</span>
+            <span>Kết quả từ bài làm đã nộp</span>
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="bg-[#f6f8fc] p-3.5 rounded-xl border border-[#e1e7ef]">
-              <span className="text-[#5f708b] block text-xs font-medium">Số lượt nộp bài</span>
+              <span className="text-[#5f708b] block text-xs font-medium">Lượt học viên đã nộp</span>
               <strong className="text-lg text-[#12213b] mt-1 block font-bold">
                 {attemptCount > 0 ? `${attemptCount} lượt` : '0 lượt'}
               </strong>
             </div>
 
             <div className="bg-[#f6f8fc] p-3.5 rounded-xl border border-[#e1e7ef]">
-              <span className="text-[#5f708b] block text-xs font-medium">Điểm trung bình thực tế</span>
+              <span className="text-[#5f708b] block text-xs font-medium">Điểm trung bình</span>
               <strong className="text-lg text-[#2959ea] mt-1 block font-bold">
                 {attemptCount > 0 && avgScore != null
                   ? `${Math.round(avgScore)} / 100`
                   : 'Chưa có kết quả'}
               </strong>
+              <span className="mt-1 block text-[11px] leading-snug text-[#5f708b]">
+                Tính từ lượt nộp mới nhất của mỗi học viên cho từng bài kiểm tra.
+              </span>
             </div>
 
             <div className="bg-[#f6f8fc] p-3.5 rounded-xl border border-[#e1e7ef]">
-              <span className="text-[#5f708b] block text-xs font-medium">Khái niệm kiểm tra</span>
+              <span className="text-[#5f708b] block text-xs font-medium">Ý chính có trong câu hỏi</span>
               <strong className="text-sm sm:text-base text-[#12213b] mt-1 block font-bold truncate">
                 {workspace?.concepts?.length
                   ? workspace.concepts.slice(0, 2).map(c => c.label).join(', ')
-                  : 'Chưa bóc tách khái niệm'}
+                  : 'Chưa có ý chính đã duyệt'}
               </strong>
             </div>
           </div>
@@ -200,7 +203,7 @@ export const AssessmentView: React.FC = () => {
           <p className="text-xs text-[#5f708b] max-w-md mx-auto">
             {role === 'student'
               ? 'Vui lòng quay lại sau khi giảng viên hoàn tất thẩm định và xuất bản câu hỏi.'
-              : 'Bấm nút "Tạo câu hỏi từ bài giảng" ở phía trên để hệ thống tạo đề tự động.'}
+              : 'Chọn “Tạo câu hỏi từ bài giảng”, kiểm tra câu hỏi được gợi ý rồi xuất bản cho lớp.'}
           </p>
         </div>
       ) : (
@@ -217,7 +220,7 @@ export const AssessmentView: React.FC = () => {
                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                 : 'bg-amber-50 text-amber-700 border border-amber-200'
             }`}>
-              {activeAssessment.status === 'published' ? 'Đã xuất bản' : 'Bản thảo chờ duyệt'}
+              {activeAssessment.status === 'published' ? 'Đã giao cho học viên' : 'Bản nháp, chưa giao'}
             </span>
           </div>
 
@@ -345,7 +348,7 @@ export const AssessmentView: React.FC = () => {
                   className="min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer self-start sm:self-auto"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Phê duyệt & Xuất bản đề</span>
+                  <span>Duyệt câu hỏi và giao bài</span>
                 </button>
               )}
             </div>

@@ -19,9 +19,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   unsupportedCount = 0,
   triggerRef
 }) => {
-  const [note, setNote] = useState<string>(
-    'Đã đối chiếu các khái niệm có trích dẫn video/transcript hợp lệ; loại trừ các phát hiện thiếu bằng chứng trước khi xuất bản cho học viên.'
-  );
+  const [note, setNote] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -35,7 +33,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       onClose();
     } catch (err: any) {
       // Keep modal open on error per review specification!
-      setErrorMessage(err.detail || err.message || 'Lỗi khi lưu quyết định thẩm định. Vui lòng thử lại.');
+      setErrorMessage(err.detail || err.message || 'Không lưu được quyết định. Vui lòng thử lại.');
     } finally {
       setSubmitting(false);
     }
@@ -62,7 +60,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                 Kiểm tra nội dung trước khi giao
               </h3>
               <p className="text-xs text-[#5f708b] mt-0.5">
-                Thẩm định các đề xuất từ học liệu trước khi xuất bản cho người học
+                Hãy xem nội dung và nguồn dẫn trước khi quyết định đưa chúng vào bài học.
               </p>
             </div>
           </div>
@@ -83,21 +81,20 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
           </div>
         )}
 
-        {/* Fact breakdown: uses "chỉ giao nội dung đã được giảng viên kiểm tra" */}
         <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-950 space-y-2 leading-relaxed">
           <div className="font-bold flex items-center space-x-1.5 text-amber-900">
             <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-            <span>Nội dung thẩm định trước khi xuất bản:</span>
+            <span>Điều sẽ xảy ra khi bạn xác nhận:</span>
           </div>
           <p>
-            Hệ thống sẽ <strong>xác nhận các khái niệm có dẫn nguồn</strong> ({supportedCount} nội dung hợp lệ), đồng thời <strong>loại trừ các nhận định thiếu bằng chứng</strong> ({unsupportedCount} nhận định chưa được kiểm chứng trong video/slide) để <strong>chỉ giao nội dung đã được giảng viên kiểm tra</strong> cho học viên.
+            Khi bạn lưu quyết định, {supportedCount} ý có nguồn hợp lệ sẽ được chấp nhận; {unsupportedCount} ý chưa có nguồn hợp lệ sẽ bị loại khỏi bài dành cho học viên. Hãy mở từng nguồn để kiểm tra trước khi xác nhận.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="teacher-review-note" className="block text-xs font-bold text-[#12213b] mb-1.5">
-              Ghi chú thẩm định & lý do loại trừ:
+              Ghi chú cho quyết định <span className="text-rose-600">(bắt buộc)</span>:
             </label>
             <textarea
               id="teacher-review-note"
@@ -105,7 +102,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl p-3 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea] leading-relaxed resize-none"
-              placeholder="Nhập ghi chú hoặc lý do phê duyệt/loại trừ..."
+              placeholder="Ví dụ: Đã kiểm tra các ý chính và nguồn dẫn kèm theo."
               required
             />
           </div>
@@ -125,7 +122,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               className="px-4 py-2 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#2959ea] hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
             >
               <Check className="w-4 h-4" />
-              <span>{submitting ? 'Đang lưu quyết định...' : 'Xác nhận duyệt và loại nội dung thiếu nguồn'}</span>
+              <span>{submitting ? 'Đang lưu quyết định...' : 'Lưu quyết định duyệt'}</span>
             </button>
           </div>
         </form>

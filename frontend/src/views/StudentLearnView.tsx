@@ -56,6 +56,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
   const [playerTime, setPlayerTime] = useState<number>(0);
   const [playerDuration, setPlayerDuration] = useState<number>(0);
   const [activeTranscriptIndex, setActiveTranscriptIndex] = useState<number | null>(null);
+  const [selectedVideoEvidence, setSelectedVideoEvidence] = useState<Evidence | null>(null);
   const [bookmarkLabel, setBookmarkLabel] = useState<string>('');
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(false);
   const [progressNotice, setProgressNotice] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
     setAsking(false);
     setConversation([]);
     setActiveTranscriptIndex(null);
+    setSelectedVideoEvidence(null);
     setProgressNotice(null);
     setBookmarkError(null);
 
@@ -264,7 +266,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
   // Honest caption (Review point 7)
   const isSample = Boolean(workspace?.lecture.sample_attached);
   const videoCaption = isSample
-    ? 'Video bài giảng tham khảo và học liệu thực hành 50 giây'
+    ? `Học liệu thực hành · 18:29 · ${workspace?.transcript.length ?? 0} ghi chú theo mốc`
     : (workspace?.assets.some(a => a.kind === 'video')
       ? 'Video bài giảng đã tải lên'
       : 'Học liệu bài giảng');
@@ -310,6 +312,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
             seekTarget={videoSeekTarget}
             onClearSeekTarget={clearVideoSeek}
             sampleAttached={workspace?.lecture.sample_attached}
+            selectedEvidence={selectedVideoEvidence}
             onTimeUpdate={handleTimeUpdate}
             onPause={handlePause}
           />
@@ -323,10 +326,10 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
           <div className="space-y-1.5 pt-2 border-t border-[#e1e7ef]">
             <div className="flex items-center justify-between pb-1">
               <h3 className="font-bold text-xs sm:text-sm text-[#12213b]">
-                {isSample ? 'Học liệu thực hành & lời thoại đối chiếu' : 'Lời thoại bài giảng'}
+                {isSample ? 'Ghi chú học liệu thực hành' : 'Lời thoại bài giảng'}
               </h3>
               <span className="text-[11px] text-[#5f708b] bg-slate-100 px-2 py-0.5 rounded-md font-medium">
-                {isSample ? 'Biên soạn riêng (50s)' : 'Tài liệu bài giảng'}
+                {isSample ? '8 khoảng thời gian · diễn giải phụ đề' : 'Tài liệu bài giảng'}
               </span>
             </div>
             <div className="space-y-1">
@@ -342,6 +345,8 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
                       key={idx}
                       type="button"
                       onClick={() => {
+                        const cited = workspace?.evidence.find(evidence => evidence.start === item.start && evidence.source_type === item.source_type) || null;
+                        setSelectedVideoEvidence(cited);
                         seekVideoTo(item.start);
                         setActiveTranscriptIndex(idx);
                       }}
@@ -370,7 +375,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
 
             <p className="text-xs text-[#5f708b] pt-1">
               {isSample
-                ? 'Bấm vào một đoạn để chuyển sang học liệu thực hành và tua đúng phần minh họa.'
+                ? 'Bấm một mốc để xem đúng phần tương ứng trong học liệu thực hành.'
                 : 'Bấm vào một đoạn để tua video đến đúng vị trí.'}
             </p>
           </div>
@@ -431,7 +436,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
                         <span className="text-[#12213b] font-medium">{bm.label}</span>
                         <button
                           type="button"
-                          onClick={() => seekVideoTo(bm.seconds)}
+                          onClick={() => { setSelectedVideoEvidence(null); seekVideoTo(bm.seconds); }}
                           className="font-mono text-xs text-[#2959ea] hover:underline font-bold flex items-center gap-1 min-h-[44px] px-2"
                         >
                           <Play className="w-3 h-3 fill-[#2959ea]" />
@@ -525,6 +530,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
                                   type="button"
                                   onClick={() => {
                                     if (typeof cite.start === 'number' && cite.start >= 0) {
+                                      setSelectedVideoEvidence(cite);
                                       seekVideoTo(cite.start);
                                     }
                                   }}
@@ -533,7 +539,9 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
                                   <Play className="w-3 h-3 fill-current" />
                                   <span>
                                     {isSample
-                                      ? `Xem học liệu thực hành ${formatEvidenceLabel(cite)}`
+                                      ? (cite.source_type === 'youtube_caption_annotation'
+                                        ? `Xem học liệu ${formatEvidenceLabel(cite)}`
+                                        : `Xem mô phỏng ${formatEvidenceLabel(cite)}`)
                                       : (cite.kind === 'slide' ? `Xem trang slide ${cite.slide_page ?? 1}` : `Xem đoạn nguồn ${formatEvidenceLabel(cite)}`)}
                                   </span>
                                 </button>

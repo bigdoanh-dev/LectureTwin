@@ -44,6 +44,9 @@ export const KnowledgeView: React.FC = () => {
 
   const concepts = workspace?.concepts || [];
   const evidences = workspace?.evidence || [];
+  const isPreparedSample = workspace?.lecture.sample_attached === true;
+  const pendingFindings = workspace?.findings.filter(finding => finding.status === 'pending') || [];
+  const unsupportedPendingCount = pendingFindings.filter(finding => !finding.has_evidence).length;
 
   const filteredConcepts = concepts.filter(c =>
     c.label.toLowerCase().includes(query.toLowerCase()) ||
@@ -55,16 +58,26 @@ export const KnowledgeView: React.FC = () => {
 
   // Evidences associated with selected concept
   const conceptEvidences = selectedConcept
-    ? evidences.filter(e => selectedConcept.evidence_ids?.includes(e.id) || e.concept_id === selectedConcept.id)
+    ? evidences
+      .filter(e => selectedConcept.evidence_ids?.includes(e.id) || e.concept_id === selectedConcept.id)
+      .filter((evidence, index, all) => all.findIndex(item => item.id === evidence.id) === index)
     : [];
+  const conceptEvidenceGroups = conceptEvidences.reduce<{ key: string; items: Evidence[] }[]>((groups, evidence) => {
+    const key = `${evidence.text}|${evidence.start ?? ''}|${evidence.end ?? ''}`;
+    const group = groups.find(item => item.key === key);
+    if (group) group.items.push(evidence);
+    else groups.push({ key, items: [evidence] });
+    return groups;
+  }, []);
 
   const handleBulkReview = async (note: string) => {
     try {
       await api.bulkReview(currentLectureId, note);
       await refreshWorkspace();
-      setActionMsg('Đã hoàn tất thẩm định toàn bộ bằng chứng.');
+      setActionMsg('Đã lưu quyết định. Các ý có nguồn hợp lệ được duyệt; ý thiếu nguồn bị loại khỏi bài giao cho học viên.');
     } catch (err: any) {
-      setActionMsg(err.detail || 'Lỗi thẩm định');
+      setActionMsg(err.detail || 'Không lưu được quyết định. Vui lòng thử lại.');
+      throw err;
     }
   };
 
@@ -84,7 +97,7 @@ export const KnowledgeView: React.FC = () => {
       });
       setEditingConcept(false);
       await refreshWorkspace();
-      setActionMsg('Đã cập nhật khái niệm thành công (yêu cầu thẩm định lại).');
+      setActionMsg('Đã cập nhật ý chính. Giảng viên cần duyệt lại trước khi sử dụng.');
     } catch (err: any) {
       setActionMsg(err.detail || err.message || 'Lỗi khi cập nhật khái niệm');
     }
@@ -101,23 +114,27 @@ export const KnowledgeView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
-            Bản đồ tri thức & Bằng chứng
+            Ý chính và nguồn của bài giảng
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-            Mỗi nút khái niệm đều liên kết trực tiếp với đoạn trích video, slide và bằng chứng xác minh.
+            Mỗi ý chính có đoạn video hoặc trang slide đi kèm để giảng viên đối chiếu trước khi sử dụng.
           </p>
         </div>
 
-        {role === 'teacher' && (
+        {role === 'teacher' && pendingFindings.length > 0 ? (
           <button
             type="button"
             onClick={() => setIsReviewModalOpen(true)}
             className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#2959ea] hover:bg-blue-700 shadow-xs transition-colors cursor-pointer self-start sm:self-auto min-h-[44px]"
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Thẩm định bằng chứng (Review Gate)</span>
+            <span>Kiểm tra {pendingFindings.length} ý đang chờ duyệt</span>
           </button>
-        )}
+        ) : role === 'teacher' && concepts.length > 0 ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 self-start sm:self-auto">
+            {isPreparedSample ? 'Ý chính trong bài mẫu đã được chuẩn bị sẵn.' : 'Không còn ý chính nào đang chờ duyệt.'}
+          </p>
+        ) : null}
       </div>
 
       {actionMsg && (
@@ -134,7 +151,7 @@ export const KnowledgeView: React.FC = () => {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Tìm kiếm khái niệm (BFS, DFS, Queue, Stack...)"
+          placeholder="Tìm ý chính trong bài giảng..."
           className="w-full bg-white border border-[#e1e7ef] rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea] shadow-2xs min-h-[44px]"
         />
       </div>
@@ -144,15 +161,15 @@ export const KnowledgeView: React.FC = () => {
         {/* Left: Concept Nodes (6 Cols) */}
         <div className="lg:col-span-6 space-y-3">
           <h2 className="font-bold text-sm sm:text-base text-[#12213b]">
-            Các khái niệm trong bài giảng ({filteredConcepts.length})
+            Ý chính trong bài giảng ({filteredConcepts.length})
           </h2>
 
           {concepts.length === 0 ? (
             <div className="bg-white rounded-xl border border-[#e1e7ef] p-8 text-center space-y-2 shadow-2xs">
               <Network className="w-8 h-8 text-[#5f708b] mx-auto opacity-40" />
-              <div className="font-bold text-sm text-[#12213b]">Chưa có khái niệm được bóc tách</div>
+              <div className="font-bold text-sm text-[#12213b]">Chưa có ý chính để xem</div>
               <p className="text-xs text-[#5f708b] max-w-sm mx-auto">
-                Hãy chuyển sang trang <strong>AI hỗ trợ</strong> và bắt đầu phân tích bài giảng để xây dựng đồ thị tri thức.
+                Mở trang <strong>AI hỗ trợ</strong> và chọn <strong>Phân tích bài giảng</strong> để tạo gợi ý từ học liệu.
               </p>
             </div>
           ) : (
@@ -160,7 +177,8 @@ export const KnowledgeView: React.FC = () => {
               {filteredConcepts.map((c) => {
                 const isSelected = c.id === activeConceptId;
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={c.id}
                     onClick={() => {
                       setSelectedConceptId(c.id);
@@ -168,7 +186,8 @@ export const KnowledgeView: React.FC = () => {
                       const ev = evidences.find(e => c.evidence_ids?.includes(e.id) || e.concept_id === c.id);
                       if (ev) setSelectedEvidence(ev);
                     }}
-                    className={`p-4 rounded-xl border text-xs cursor-pointer transition-all ${
+                    aria-pressed={isSelected}
+                    className={`w-full p-4 rounded-xl border text-left text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2959ea] focus-visible:ring-offset-1 ${
                       isSelected
                         ? 'bg-blue-50/70 border-[#2959ea] ring-2 ring-blue-100 shadow-2xs'
                         : 'bg-white border-[#e1e7ef] hover:bg-[#f6f8fc]'
@@ -184,12 +203,12 @@ export const KnowledgeView: React.FC = () => {
                         {c.verified ? (
                           <>
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>Đã xác minh</span>
+                            <span>{isPreparedSample ? 'Có sẵn trong bài mẫu' : 'Giảng viên đã duyệt'}</span>
                           </>
                         ) : (
                           <>
                             <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            <span>Cần xác minh</span>
+                            <span>Chờ giảng viên duyệt</span>
                           </>
                         )}
                       </span>
@@ -197,7 +216,7 @@ export const KnowledgeView: React.FC = () => {
                     <p className="text-[#5f708b] text-xs mt-1 leading-relaxed">
                       {c.description}
                     </p>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -221,7 +240,7 @@ export const KnowledgeView: React.FC = () => {
           <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3 text-xs">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm sm:text-base text-[#12213b]">
-                Bằng chứng cho khái niệm: {selectedConcept ? selectedConcept.label : 'Chưa chọn'}
+                Nguồn cho ý chính: {selectedConcept ? selectedConcept.label : 'Chưa chọn'}
               </h3>
 
               {role === 'teacher' && selectedConcept && !editingConcept && (
@@ -231,7 +250,7 @@ export const KnowledgeView: React.FC = () => {
                   className="text-[#2959ea] hover:text-blue-800 text-xs font-semibold flex items-center space-x-1 cursor-pointer"
                 >
                   <Edit2 className="w-3 h-3" />
-                  <span>Sửa khái niệm</span>
+                  <span>Sửa ý chính</span>
                 </button>
               )}
             </div>
@@ -243,13 +262,13 @@ export const KnowledgeView: React.FC = () => {
                   type="text"
                   value={editLabel}
                   onChange={(e) => setEditLabel(e.target.value)}
-                  placeholder="Tên khái niệm"
+                  placeholder="Tên ý chính"
                   className="w-full bg-white border border-[#e1e7ef] rounded-lg px-2.5 py-1.5 text-xs font-bold text-[#12213b]"
                 />
                 <textarea
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
-                  placeholder="Mô tả khái niệm"
+                  placeholder="Mô tả ý chính"
                   rows={2}
                   className="w-full bg-white border border-[#e1e7ef] rounded-lg p-2 text-xs text-[#12213b]"
                 />
@@ -267,56 +286,60 @@ export const KnowledgeView: React.FC = () => {
                     className="px-3 py-1 bg-[#2959ea] text-white rounded-lg text-xs font-semibold flex items-center space-x-1"
                   >
                     <Check className="w-3 h-3" />
-                    <span>Lưu & Mở lại xác minh</span>
+                    <span>Lưu & yêu cầu duyệt lại</span>
                   </button>
                 </div>
               </div>
             )}
 
-            {conceptEvidences.length === 0 ? (
+            {conceptEvidenceGroups.length === 0 ? (
               <div className="text-[#5f708b] py-3 text-center italic">
-                Khái niệm này chưa có đoạn dẫn chứng cụ thể được trích xuất.
+                Chưa có đoạn nguồn gắn với ý chính này.
               </div>
             ) : (
               <div className="space-y-2">
-                {conceptEvidences.map((ev) => {
-                  const hasTime = typeof ev.start === 'number';
+                {conceptEvidenceGroups.map((group) => {
+                  const representative = group.items[0];
+                  const videoSource = group.items.find(evidence => evidence.kind !== 'slide' && typeof evidence.start === 'number');
+                  const slideSources = group.items.filter(evidence => evidence.kind === 'slide');
                   return (
                     <div
-                      key={ev.id}
-                      className="p-3 bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] flex items-start justify-between gap-3"
+                      key={group.key}
+                      className="p-3 bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] space-y-2"
                     >
-                      <div>
-                        <div className="flex items-center space-x-1.5 font-bold text-[#12213b]">
-                          {hasTime ? (
-                            <>
-                              <Clock className="w-3.5 h-3.5 text-[#2959ea] shrink-0" />
-                              <span>Transcript mốc {formatTimestamp(ev.start)} — {formatTimestamp(ev.end)}</span>
-                            </>
-                          ) : (
-                            <>
-                              <FileText className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                              <span>Trang slide {ev.slide_page ?? 1}</span>
-                            </>
-                          )}
-                        </div>
-                        <p className="text-[#5f708b] mt-1 italic leading-relaxed">
-                          “{ev.text}”
-                        </p>
+                      <div className="flex flex-wrap gap-2">
+                        {videoSource && (
+                          <span className="inline-flex items-center gap-1.5 font-bold text-[#2959ea] bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg">
+                            <Clock className="w-3.5 h-3.5 shrink-0" />
+                            {videoSource.source_type === 'youtube_caption_annotation'
+                              ? 'Học liệu thực hành'
+                              : isPreparedSample ? 'Học liệu thực hành' : 'Video bài giảng'} · {formatTimestamp(videoSource.start)}
+                          </span>
+                        )}
+                        {slideSources.map((slide) => (
+                          <span key={slide.id} className="inline-flex items-center gap-1.5 font-bold text-purple-700 bg-purple-50 border border-purple-100 px-2 py-1 rounded-lg">
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            Trang slide {slide.slide_page ?? 1}
+                          </span>
+                        ))}
+                        {!videoSource && slideSources.length === 0 && (
+                          <span className="font-bold text-[#5f708b]">Nguồn học liệu</span>
+                        )}
                       </div>
+                      <p className="text-[#5f708b] italic leading-relaxed">“{representative.text}”</p>
 
-                      {hasTime && (
+                      {videoSource && videoSource.start !== null && (
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedEvidence(ev);
-                            if (typeof ev.start === 'number') {
-                              seekVideoTo(ev.start);
-                            }
+                            setSelectedEvidence(videoSource);
+                            seekVideoTo(videoSource.start as number);
                           }}
-                          className="text-[#2959ea] hover:underline font-bold ml-2 shrink-0 cursor-pointer whitespace-nowrap text-xs"
+                          className="inline-flex items-center min-h-[40px] text-[#2959ea] hover:underline font-bold cursor-pointer whitespace-nowrap text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2959ea] rounded-md"
                         >
-                          Tua tới {formatTimestamp(ev.start)} →
+                          {videoSource.source_type === 'youtube_caption_annotation'
+                            ? `Mở học liệu tại ${formatTimestamp(videoSource.start)} →`
+                            : `Mở đoạn video từ ${formatTimestamp(videoSource.start)} →`}
                         </button>
                       )}
                     </div>
@@ -332,6 +355,8 @@ export const KnowledgeView: React.FC = () => {
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         onConfirm={handleBulkReview}
+        pendingCount={pendingFindings.length}
+        unsupportedCount={unsupportedPendingCount}
       />
     </motion.div>
   );
