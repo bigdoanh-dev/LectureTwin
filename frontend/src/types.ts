@@ -106,6 +106,7 @@ export interface AgentRun {
   started_at?: string;
   finished_at?: string;
   duration_ms?: number;
+  teacher_reviewed_at?: string;
   input?: any;
   output?: any;
   tools: AgentToolInvocation[];

@@ -36,6 +36,20 @@ export function analysisControl(job: Job | null) {
     default: return { action: 'start', label: 'Bắt đầu phân tích', message: 'Phân tích tạo đề xuất có dẫn nguồn từ học liệu. Thử thay đổi bài học là bước riêng để so sánh phân bổ thời lượng.' } as const;
   }
 }
+export function analysisProgress(job: Job | null) {
+  const agents = job?.agents || [];
+  const read = agents.find(a => a.agent === 'perception');
+  const knowledge = agents.find(a => a.agent === 'knowledge');
+  const verify = agents.find(a => a.agent === 'verification');
+  const verifiedAutomatically = verify?.status === 'needs_review' && verify.tools.some(tool => tool.name === 'validate_evidence' && tool.status === 'completed');
+  const reviewed = verify?.status === 'completed' && Boolean(verify.teacher_reviewed_at);
+  return [
+    { id: 'read', title: 'Đọc học liệu', status: read?.status || 'idle', detail: read?.status === 'completed' ? `Đã đọc ${read.output?.result?.transcript_segments ?? 0} ghi chú và ${read.output?.result?.slide_pages ?? 0} trang trình chiếu.` : 'Đọc thông tin nguồn và các ghi chú được cung cấp.' },
+    { id: 'knowledge', title: 'Tìm ý chính', status: knowledge?.status || 'idle', detail: knowledge?.status === 'completed' ? `Tìm thấy ${knowledge.output?.result?.concept_count ?? 0} ý chính, gắn với ${knowledge.output?.result?.evidence_count ?? 0} liên kết nguồn.` : 'Tìm từ khóa và gắn ý chính với đoạn nguồn tương ứng.' },
+    { id: 'verify', title: 'Đối chiếu nguồn', status: verifiedAutomatically ? 'completed' : verify?.status || 'idle', detail: verifiedAutomatically || verify?.status === 'completed' ? 'Đã kiểm tra mốc dẫn chứng và đánh dấu các mục cần bạn xem.' : 'Kiểm tra mốc dẫn chứng và phát hiện mục thiếu nguồn.' },
+    { id: 'review', title: 'Bạn duyệt', status: reviewed ? 'completed' : job?.status === 'needs_review' ? 'needs_review' : 'idle', detail: reviewed ? 'Đã lưu quyết định của giảng viên.' : job?.status === 'needs_review' ? 'Đang chờ bạn kiểm tra đề xuất. Hệ thống dừng tại đây để bạn quyết định.' : 'Mở sau khi hệ thống đã tạo đề xuất có dẫn nguồn.' },
+  ];
+}
 export function lessonWorkflow(workspace: Workspace | null) {
   const job = latestAnalysis(workspace);
   const findings = workspace?.findings || [];

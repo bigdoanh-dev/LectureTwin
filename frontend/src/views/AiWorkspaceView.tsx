@@ -30,6 +30,7 @@ import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { ModalDialog } from '../components/ModalDialog';
+import { AnalysisProgress } from '../components/AnalysisProgress';
 import { api } from '../api';
 import {
   buildLessonSummary,
@@ -72,6 +73,7 @@ export const AiWorkspaceView: React.FC = () => {
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isHowDemoWorksOpen, setIsHowDemoWorksOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [analysisPending, setAnalysisPending] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Concept edit state
@@ -149,11 +151,13 @@ export const AiWorkspaceView: React.FC = () => {
       if (analysisCTA.action === 'review') { setIsReviewModalOpen(true); return; }
       if (analysisCTA.action === 'wait') return;
       if ((analysisCTA.action === 'resume' || analysisCTA.action === 'retry') && workflow.job) {
+        setAnalysisPending(true);
         const job = await api.controlJob(workflow.job.id, analysisCTA.action);
         setActiveJob(job);
         await refreshWorkspace();
         return;
       }
+      setAnalysisPending(true);
       const job = await api.startAnalysis(currentLectureId);
       setActiveJob(job);
       if (job.status === 'needs_review') setActionMessage(analysisControl(job).message);
@@ -161,6 +165,7 @@ export const AiWorkspaceView: React.FC = () => {
     } catch (err: any) {
       setActionMessage(err.detail || err.message || 'Không thể khởi động phân tích.');
     } finally {
+      setAnalysisPending(false);
       setActionLoading(false);
     }
   };
@@ -375,7 +380,7 @@ export const AiWorkspaceView: React.FC = () => {
   // Step 3 label per Review line 26: use workflow.reviewed -> 'Đã duyệt, chờ xuất bản'
   const step3Label = workflow.published
     ? 'Đã hoàn tất'
-    : (workflow.reviewed ? 'Đã duyệt, chờ xuất bản' : (workflow.canReview ? 'Kiểm tra và hoàn thiện' : 'Chưa mở'));
+    : (workflow.reviewed ? 'Đã duyệt, chờ xuất bản' : (workflow.canReview ? 'Chờ bạn duyệt' : 'Chưa mở'));
 
   return (
     <motion.div
@@ -504,7 +509,7 @@ export const AiWorkspaceView: React.FC = () => {
                 2 AI xử lý
               </span>
               <span className="text-xs text-[#5f708b] font-normal">
-                {workflow.analyzed ? 'Đã có đề xuất' : workflow.running ? 'Đang phân tích' : 'Chờ xử lý'}
+                {workflow.analyzed ? 'Đã có đề xuất' : workflow.running ? 'Đang phân tích' : 'Chưa phân tích'}
               </span>
             </div>
           </div>
@@ -535,6 +540,8 @@ export const AiWorkspaceView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <AnalysisProgress pending={analysisPending} job={activeJob?.workflow === 'analysis' && activeJob.lecture_id === currentLectureId && activeJob.input?.version === workspace?.lecture.version ? activeJob : workflow.job} />
 
       {/* 3. Main Workspace Grid: Left 43% (Bài giảng gốc) vs Right 57% (Đề xuất từ học liệu) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

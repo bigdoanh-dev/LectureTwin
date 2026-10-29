@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl } from '../src/presentation.ts';
+import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -14,6 +14,19 @@ function ready() {
   w.jobs = [{id:'actual-job',workflow:'analysis',input:{version:2},status:'completed'}];
   return w;
 }
+test('Step progress uses actual tool completion and never treats review waiting as teacher approval', () => {
+  assert.deepEqual(analysisProgress(null).map(s=>s.status),['idle','idle','idle','idle']);
+  const job={status:'running',agents:[{agent:'perception',status:'running'}]};
+  assert.deepEqual(analysisProgress(job).map(s=>s.status),['running','idle','idle','idle']);
+  job.status='needs_review';
+  job.agents=[{agent:'perception',status:'completed',output:{result:{transcript_segments:8,slide_pages:0}}},{agent:'knowledge',status:'completed',output:{result:{concept_count:6,evidence_count:12}}},{agent:'verification',status:'needs_review',tools:[{name:'validate_evidence',status:'completed'}]}];
+  assert.deepEqual(analysisProgress(job).map(s=>s.status),['completed','completed','completed','needs_review']);
+  assert.match(analysisProgress(job)[0].detail,/8 ghi chú/);
+  job.status='completed';job.agents[2].status='completed';
+  assert.equal(analysisProgress(job)[3].status,'idle');
+  job.agents[2].teacher_reviewed_at='2026-10-30T00:00:00Z';
+  assert.equal(analysisProgress(job)[3].status,'completed');
+});
 test('Analysis offers the next useful action instead of silently restarting a review gate', () => {
   assert.equal(analysisControl(null).action, 'start');
   assert.equal(analysisControl({status:'needs_review'}).action, 'review');

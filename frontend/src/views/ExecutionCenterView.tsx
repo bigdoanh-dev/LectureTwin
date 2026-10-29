@@ -32,6 +32,7 @@ import { ReviewModal } from '../components/ReviewModal';
 import { api } from '../api';
 import { Job, Evidence } from '../types';
 import { analysisControl } from '../presentation';
+import { AnalysisProgress } from '../components/AnalysisProgress';
 
 const AGENT_GUIDES: Record<string, { label: string; purpose: string; input: string; output: string }> = {
   orchestrator: { label: 'Điều phối', purpose: 'Bắt đầu đúng quy trình, lưu trạng thái và chuyển việc giữa các bước.', input: 'Yêu cầu xử lý và phiên bản bài giảng', output: 'Các bước cần chạy và trạng thái lượt xử lý' },
@@ -75,6 +76,7 @@ export const ExecutionCenterView: React.FC = () => {
   const [activeInspectorTab, setActiveInspectorTab] = useState<'input' | 'tools' | 'output' | 'history'>('output');
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [analysisPending, setAnalysisPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [selectedEvidenceForPlayer, setSelectedEvidenceForPlayer] = useState<Evidence | null>(null);
@@ -136,6 +138,7 @@ export const ExecutionCenterView: React.FC = () => {
   const handleStartAnalysis = async () => {
     if (!currentLectureId) return;
     setActionLoading(true);
+    setAnalysisPending(true);
     setActionError(null);
     try {
       const job = await api.startAnalysis(currentLectureId);
@@ -145,6 +148,7 @@ export const ExecutionCenterView: React.FC = () => {
       console.error('Start analysis error:', err);
       setActionError(err.detail || err.message || 'Không thể bắt đầu phân tích bài giảng');
     } finally {
+      setAnalysisPending(false);
       setActionLoading(false);
     }
   };
@@ -351,6 +355,8 @@ export const ExecutionCenterView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <AnalysisProgress job={analysisJob} pending={analysisPending} />
 
       <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
         <p className="text-sm font-semibold text-slate-900">{analysisJob ? analysisCTA.label : 'Phân tích và mô phỏng giúp bạn làm gì?'}</p>
