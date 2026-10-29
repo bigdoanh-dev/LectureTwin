@@ -138,6 +138,7 @@ export interface Job {
 }
 
 export interface PlannedSegment {
+  concept_ids?: string[];
   id: string;
   title: string;
   concept_id: string;
@@ -219,6 +220,8 @@ export interface LectureTwinData {
     objectives: string[];
     segments: PlannedSegment[];
     total_minutes: number;
+    origin?: string;
+    source_version?: number;
   };
   observed: {
     concepts: number;
@@ -244,11 +247,14 @@ export interface StudentProgress {
 }
 
 export interface Workspace {
+  capabilities?: { can_generate_assessment: boolean };
   lecture: LectureSummary;
   planned: {
     objectives: string[];
     segments: PlannedSegment[];
     total_minutes: number;
+    origin?: string;
+    source_version?: number;
   };
   assets: Array<{
     id: string;

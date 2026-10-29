@@ -24,7 +24,8 @@ import {
   Eye,
   AlertCircle,
   PlayCircle,
-  Sliders
+  Sliders,
+  Upload
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -35,11 +36,10 @@ import { api } from '../api';
 import {
   buildLessonSummary,
   lessonWorkflow,
-  analysisStages,
   formatEvidenceLabel,
   formatTimestamp,
   currentAssessments,
-  analysisControl
+  workspaceSections
 } from '../presentation';
 import { Evidence, AssessmentQuestion, ScenarioComparison } from '../types';
 
@@ -63,12 +63,12 @@ export const AiWorkspaceView: React.FC = () => {
 
   const shouldReduceMotion = useReducedMotion();
   const workflow = lessonWorkflow(workspace);
-  const analysisCTA = analysisControl(workflow.job);
-  const summaryRows = buildLessonSummary(workspace);
-  const stages = analysisStages(workspace);
+  const sections = workspaceSections(workspace);
+  const summaryRows = sections.resultsReady ? buildLessonSummary(workspace) : [];
 
   // Local UI State
   const [activeTab, setActiveTab] = useState<'summary' | 'questions' | 'improve'>('summary');
+  const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isHowDemoWorksOpen, setIsHowDemoWorksOpen] = useState(false);
@@ -100,6 +100,8 @@ export const AiWorkspaceView: React.FC = () => {
 
   // Reset local state on lecture change
   useEffect(() => {
+    setActiveTab('summary');
+    setWorkflowStep(workspace?.assets.some(asset => asset.source_type === 'user_upload') && workflow.job ? 2 : 1);
     setSelectedEvidence(null);
     setEditingConceptId(null);
     setEditingQuestionId(null);
@@ -127,11 +129,11 @@ export const AiWorkspaceView: React.FC = () => {
         simAbortRef.current = null;
       }
     };
-  }, [currentLectureId]);
+  }, [currentLectureId, workspace?.lecture.version]);
 
   // Default first cited source
   const defaultEvidence = summaryRows[0]?.evidence || workspace?.evidence?.find(e => e.valid) || null;
-  const currentEvidence = selectedEvidence || defaultEvidence;
+  const currentEvidence = workspace?.evidence.find(evidence => evidence.id === selectedEvidence?.id) || defaultEvidence;
 
   // Current assessments for active lecture version, newest first (Review line 36)
   const assessments = currentAssessments(workspace);
@@ -140,45 +142,10 @@ export const AiWorkspaceView: React.FC = () => {
   // Real planned segments for tab Cải tiến
   const plannedSegments = workspace?.planned?.segments || workspace?.twin?.planned?.segments || [];
   const totalPlannedMinutes = workspace?.lecture.total_minutes || 50;
-
-  // Start analysis handler
-  const handleStartAnalysis = async () => {
-    if (!currentLectureId) return;
-    setActionLoading(true);
-    setActionMessage(null);
-    try {
-      if (analysisCTA.action === 'review') { setIsReviewModalOpen(true); return; }
-      if (analysisCTA.action === 'wait') return;
-      if ((analysisCTA.action === 'resume' || analysisCTA.action === 'retry') && workflow.job) {
-        const job = await api.controlJob(workflow.job.id, analysisCTA.action);
-        setActiveJob(job);
-        await refreshWorkspace();
-        return;
-      }
-      const job = await api.startAnalysis(currentLectureId, Boolean(workspace?.lecture.guided_demo));
-      setActiveJob(job);
-      if (job.status === 'needs_review') setActionMessage(analysisControl(job).message);
-      await refreshWorkspace();
-    } catch (err: any) {
-      setActionMessage(err.detail || err.message || 'Không thể khởi động phân tích.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Attach sample handler
-  const handleAttachSample = async () => {
-    if (!currentLectureId) return;
-    setActionLoading(true);
-    setActionMessage(null);
-    try {
-      await api.attachSample(currentLectureId);
-      await Promise.all([refreshWorkspace(), refreshBootstrap()]);
-    } catch (err: any) {
-      setActionMessage(err.detail || err.message || 'Không thể gắn học liệu mẫu.');
-    } finally {
-      setActionLoading(false);
-    }
+  const practiceName = plannedSegments.find(segment => segment.kind === 'practice')?.title || 'phần thực hành';
+  const goToWorkflow = (step: 1 | 2 | 3) => {
+    setWorkflowStep(step);
+    document.getElementById('lecture-workflow')?.scrollIntoView({ behavior: shouldReduceMotion ? 'instant' : 'smooth', block: 'start' });
   };
 
   // Confirm review handler
@@ -239,6 +206,7 @@ export const AiWorkspaceView: React.FC = () => {
   // Generate assessment with AbortController
   const handleGenerateAssessment = async () => {
     if (!currentLectureId) return;
+    if (!sections.canQuestions) { setActionMessage(sections.questionReason); return; }
     if (assessmentAbortRef.current) {
       assessmentAbortRef.current.abort();
     }
@@ -325,6 +293,7 @@ export const AiWorkspaceView: React.FC = () => {
   // Run real What-If simulation via API (Review line 30: working action, no fabricated data)
   const handleRunSimulation = async () => {
     if (!currentLectureId || simRunning) return;
+    if (!sections.canImprove) { setSimError(sections.improvementReason); return; }
     if (simAbortRef.current) {
       simAbortRef.current.abort();
     }
@@ -335,8 +304,8 @@ export const AiWorkspaceView: React.FC = () => {
     setSimError(null);
     try {
       const initialJob = await api.runScenario(currentLectureId, {
-        title: 'Kịch bản tăng cường thực hành DFS',
-        request: 'Thêm 10 phút bài tập thực hành DFS nhưng không tăng tổng thời lượng bài giảng',
+        title: `Thêm thời gian cho ${practiceName}`,
+        request: `Thêm 10 phút cho ${practiceName} nhưng không tăng tổng thời lượng bài giảng`,
         add_practice_minutes: 10,
         total_limit: totalPlannedMinutes,
       });
@@ -359,10 +328,13 @@ export const AiWorkspaceView: React.FC = () => {
   // Select citation & seek video
   const handleSelectEvidence = (ev: Evidence | null) => {
     if (!ev) return;
-    setSelectedEvidence(ev);
-    if (typeof ev.start === 'number' && ev.start >= 0) {
-      seekVideoTo(ev.start);
+    const source = workspace?.evidence.find(item => item.id === ev.id && item.valid);
+    if (!source) return;
+    setSelectedEvidence(source);
+    if (workspace?.assets.some(asset => asset.kind === 'video') && typeof source.start === 'number' && source.start >= 0) {
+      seekVideoTo(source.start);
     }
+    document.getElementById('lecture-source-panel')?.scrollIntoView({ behavior: shouldReduceMotion ? 'instant' : 'smooth', block: 'start' });
   };
 
   // Honest media caption
@@ -427,29 +399,31 @@ export const AiWorkspaceView: React.FC = () => {
         </div>
       )}
 
-      <LectureWorkflow key={currentLectureId} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
+      <LectureWorkflow key={currentLectureId} step={workflowStep} onStepChange={setWorkflowStep} onShowResults={() => { setActiveTab('summary'); document.getElementById('lecture-proposals-panel')?.scrollIntoView({ behavior: shouldReduceMotion ? 'instant' : 'smooth', block: 'start' }); }} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
 
       {/* 3. Main Workspace Grid: Left 43% (Bài giảng gốc) vs Right 57% (Đề xuất từ học liệu) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT 43% (~5 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
-        <div id="lecture-source-panel" className="scroll-mt-28 lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
+        <div id="lecture-source-panel" role="region" aria-label="Nguồn học liệu hiện tại" data-lecture-id={currentLectureId} data-version={workspace?.lecture.version} className="scroll-mt-28 lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
+          {sections.hasUpload ? <>
           <h2 className="font-bold text-[20px] text-[#12213b]">
-            {isSample ? 'Học liệu thực hành' : 'Học liệu đã tải lên'}
+            Học liệu đang sử dụng
           </h2>
 
+          <p className="break-words text-xs text-slate-500">{workspace?.assets.filter(asset => asset.source_type === 'user_upload').map(asset => asset.name).join(' · ')} · Phiên bản {workspace?.lecture.version}</p>
           {/* Embedded Native Video Player (NO nested card wrapper) */}
-          {hasVideo ? <VideoPlayer
+          {hasVideo && currentEvidence?.kind !== 'slide' ? <VideoPlayer
             lectureId={currentLectureId}
             variant="embedded"
             seekTarget={videoSeekTarget}
             onClearSeekTarget={clearVideoSeek}
             sampleAttached={workspace?.lecture.sample_attached}
-            selectedEvidence={selectedEvidence}
+            selectedEvidence={currentEvidence}
             defaultEvidence={defaultEvidence}
           /> : <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="flex items-center gap-2 text-sm font-bold text-[#12213b]"><FileText className="h-4 w-4 text-blue-600" />Nội dung tệp đã tải</p>
             {workspace?.assets.map(asset => <p key={asset.id} className="break-words text-xs font-semibold text-slate-500">{asset.name}</p>)}
-            {workspace?.slides.length ? workspace.slides.slice(0, 2).map(slide => <div key={slide.page} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">Trang {slide.page}</p>{slide.text || 'Trang này chưa có văn bản trích xuất được.'}</div>) : workspace?.transcript.slice(0, 2).map(note => <div key={note.id} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{formatTimestamp(note.start)} – {formatTimestamp(note.end)}</p>{note.text}</div>)}
+            {workspace?.slides.length && currentEvidence?.kind !== 'transcript' ? (currentEvidence?.kind === 'slide' ? workspace.slides.filter(slide => slide.page === currentEvidence.slide_page) : workspace.slides.slice(0, 2)).map(slide => <div key={slide.page} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">Trang {slide.page}</p>{slide.text || 'Trang này chưa có văn bản trích xuất được.'}</div>) : (currentEvidence?.kind === 'transcript' ? workspace?.transcript.filter(note => note.start === currentEvidence.start && note.end === currentEvidence.end) : workspace?.transcript.slice(0, 2))?.map(note => <div key={note.id} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{formatTimestamp(note.start)} – {formatTimestamp(note.end)}</p>{note.text}</div>)}
             {!workspace?.assets.length && <p className="text-sm text-slate-500">Chọn tệp ở bước 1 để bắt đầu.</p>}
           </div>}
 
@@ -459,11 +433,11 @@ export const AiWorkspaceView: React.FC = () => {
           </div>
 
           {/* Selected Citation Quote Box */}
-          <div className="bg-[#f0f5ff] rounded-xl p-4 border border-blue-100 space-y-1.5">
+          <div aria-live="polite" data-evidence-id={currentEvidence?.id} className="bg-[#f0f5ff] rounded-xl p-4 border border-blue-100 space-y-1.5">
             <div className="text-xs font-bold text-[#12213b]">
               {isSample
                 ? 'Ghi chú học liệu thực hành'
-                : (currentEvidence?.kind === 'slide' ? 'Trích dẫn trang slide' : 'Trích đoạn nguồn bài giảng')}
+                : (currentEvidence?.kind === 'slide' ? `Căn cứ từ trang ${currentEvidence.slide_page}` : 'Căn cứ từ phụ đề hoặc bài giảng')}
             </div>
 
             {currentEvidence ? (
@@ -495,20 +469,27 @@ export const AiWorkspaceView: React.FC = () => {
                 : hasVideo ? 'Video và tài liệu bài giảng đã tải lên.' : 'Nội dung được đọc từ tài liệu hoặc phụ đề bạn đã tải lên.'}
             </span>
           </div>
+          </> : <div className="space-y-3 py-6 text-center">
+            <Upload className="mx-auto h-9 w-9 text-blue-500" />
+            <h2 className="text-lg font-bold text-[#12213b]">Chưa tải học liệu</h2>
+            <p className="text-sm leading-relaxed text-slate-500">Tệp bạn gửi ở bước 1 sẽ hiển thị tại đây. Ý chính, câu hỏi và dẫn chứng bên phải sẽ lấy từ chính tệp đó.</p>
+            <button type="button" onClick={() => goToWorkflow(1)} className="min-h-[44px] rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Tải học liệu ở bước 1</button>
+          </div>}
         </div>
 
         {/* RIGHT 57% (~7 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
-        <div className="lg:col-span-7 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-4">
+        <div id="lecture-proposals-panel" role="region" aria-label="Đề xuất của học liệu hiện tại" data-lecture-id={currentLectureId} data-version={workspace?.lecture.version} className="scroll-mt-28 lg:col-span-7 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-4">
           <h2 className="font-bold text-[20px] text-[#12213b]">
             Đề xuất từ học liệu
           </h2>
 
+          <p className="text-xs text-slate-500">{sections.hasUpload ? `Kết quả của ${workspace?.assets.filter(asset => asset.source_type === 'user_upload').map(asset => asset.name).join(' + ')} · Phiên bản ${workspace?.lecture.version}` : 'Kết quả sẽ xuất hiện sau khi xử lý tệp ở bước 2.'}</p>
           {/* Plain Underline Tabs across panel (14px, min-h 44px touch) */}
           <div className="flex items-center space-x-6 border-b border-[#e1e7ef] text-sm font-semibold">
             <button
               type="button"
               onClick={() => setActiveTab('summary')}
-              className={`min-h-[44px] pb-2.5 flex items-center transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
+              className={`min-h-[44px] pb-2.5 flex items-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
                 activeTab === 'summary'
                   ? 'text-[#2959ea] font-bold'
                   : 'text-[#5f708b] hover:text-[#12213b]'
@@ -522,188 +503,47 @@ export const AiWorkspaceView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('questions')}
-              className={`min-h-[44px] pb-2.5 flex items-center transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
+              disabled={!sections.canQuestions}
+              title={sections.canQuestions ? 'Câu hỏi từ ý chính đã duyệt' : sections.questionReason}
+              className={`min-h-[44px] pb-2.5 flex items-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
                 activeTab === 'questions'
                   ? 'text-[#2959ea] font-bold'
                   : 'text-[#5f708b] hover:text-[#12213b]'
               }`}
             >
               <span>Câu hỏi</span>
-              {activeTab === 'questions' && (
+              {activeTab === 'questions' && sections.canQuestions && (
                 <span className="absolute bottom-0 inset-x-0 h-[2.5px] bg-[#2959ea] rounded-t-full" />
               )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('improve')}
-              className={`min-h-[44px] pb-2.5 flex items-center transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
+              disabled={!sections.canImprove}
+              title={sections.canImprove ? 'Thử thay đổi kế hoạch của bài này' : sections.improvementReason}
+              className={`min-h-[44px] pb-2.5 flex items-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer relative focus-visible:outline-hidden focus-visible:text-[#2959ea] ${
                 activeTab === 'improve'
                   ? 'text-[#2959ea] font-bold'
                   : 'text-[#5f708b] hover:text-[#12213b]'
               }`}
             >
               <span>Cải tiến</span>
-              {activeTab === 'improve' && (
+              {activeTab === 'improve' && sections.canImprove && (
                 <span className="absolute bottom-0 inset-x-0 h-[2.5px] bg-[#2959ea] rounded-t-full" />
               )}
             </button>
           </div>
 
           {/* TAB 1: Ý CHÍNH */}
+          {!sections.canQuestions && <p className="text-xs leading-relaxed text-slate-500">Câu hỏi: {sections.questionReason}</p>}
+          {!sections.canImprove && <p className="text-xs leading-relaxed text-slate-500">Cải tiến: {sections.improvementReason}</p>}
           {activeTab === 'summary' && (
             <div className="space-y-4">
-              {/* Case A: No Sources Attached */}
-              {!workflow.hasSources && (
-                <div className="text-center py-8 space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-blue-50 text-[#2959ea] flex items-center justify-center mx-auto">
-                    <Video className="w-6 h-6" />
-                  </div>
-                  <h3 className="font-bold text-[#12213b] text-base">
-                    Chưa có học liệu bài giảng
-                  </h3>
-                  <p className="text-xs sm:text-sm text-[#5f708b] max-w-md mx-auto leading-relaxed">
-                    Video và chú giải là đầu vào; hệ thống đề xuất ý chính, câu hỏi và nguồn để bạn kiểm tra.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleAttachSample}
-                    disabled={actionLoading}
-                    className="min-h-[44px] px-5 py-2.5 bg-[#2959ea] hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
-                  >
-                    {actionLoading ? 'Đang gắn học liệu...' : 'Gắn học liệu mẫu BFS & DFS'}
-                  </button>
-                </div>
-              )}
-
-              {/* Case B: Missing Transcript for uploaded video */}
-              {workflow.hasSources && !workflow.hasText && !workflow.running && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-bold text-xs sm:text-sm text-amber-950">
-                        Cần bổ sung bản chép lời (Transcript)
-                      </h4>
-                      <p className="text-xs text-amber-900 mt-1 leading-relaxed">
-                        Video đã tải lên. Bản demo chưa nhận dạng lời nói tự động (ASR); hãy thêm bản chép lời hoặc slide để AI tạo đề xuất có căn cứ.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('lectures')}
-                    className="min-h-[40px] px-4 py-2 bg-white text-amber-900 border border-amber-300 font-semibold text-xs rounded-xl hover:bg-amber-100 transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
-                  >
-                    Thêm bản chép lời ở trang Bài giảng →
-                  </button>
-                </div>
-              )}
-
-              {/* Case C: Sources Ready, No Analysis Run Yet */}
-              {workflow.hasSources && workflow.hasText && !workflow.running && !workflow.analyzed && (
-                <div className="space-y-4">
-                  <div className="space-y-2.5">
-                    <div className="p-3.5 bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] flex items-start gap-3">
-                      <FileCheck2 className="w-5 h-5 text-[#2959ea] shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-bold text-sm text-[#12213b]">Tóm tắt có dẫn nguồn</h4>
-                        <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Dò từ khóa trong ghi chú đã có, rồi gắn ý chính với mốc video để giảng viên đối chiếu. Bản demo chưa tự nghe hoặc đọc hình ảnh.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] flex items-start gap-3">
-                      <HelpCircle className="w-5 h-5 text-[#2959ea] shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-bold text-sm text-[#12213b]">Câu hỏi từ bài giảng</h4>
-                        <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Soạn câu hỏi nháp từ nội dung và đáp án mẫu để giảng viên xem lại trước khi giao; kết quả không tự kết luận học viên đã hiểu bài.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] flex items-start gap-3">
-                      <Sparkles className="w-5 h-5 text-[#2959ea] shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-bold text-sm text-[#12213b]">Trợ lý cho học viên</h4>
-                        <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5 leading-relaxed">
-                          Giúp học viên tìm câu trả lời trong nội dung đã được giảng viên duyệt và mở lại mốc nguồn liên quan.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={handleStartAnalysis}
-                      disabled={actionLoading}
-                      className="w-full min-h-[44px] py-3 bg-[#2959ea] hover:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
-                    >
-                      {actionLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Đang bắt đầu xử lý...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>{analysisCTA.label}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Case D: Running Analysis */}
-              {workflow.running && (
-                <div className="bg-[#f6f8fc] rounded-xl border border-[#e1e7ef] p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2 text-xs sm:text-sm font-bold text-[#12213b]">
-                      <RefreshCw className="w-4 h-4 text-[#2959ea] animate-spin" />
-                      <span>Đang phân tích học liệu bài giảng...</span>
-                    </div>
-                    {activeJob && (
-                      <button
-                        type="button"
-                        onClick={() => api.controlJob(activeJob.id, 'cancel').then(() => refreshWorkspace())}
-                        className="text-xs text-red-600 hover:underline cursor-pointer"
-                      >
-                        Hủy tiến trình
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 text-xs sm:text-sm text-[#12213b]">
-                    {stages.map((stage, sIdx) => {
-                      const isDone = stage.status === 'completed';
-                      const isRunning = stage.status === 'running';
-                      const isFailed = stage.status === 'failed';
-                      return (
-                        <div key={stage.id} className="flex items-center gap-2.5 font-medium">
-                          {isDone ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          ) : isRunning ? (
-                            <RefreshCw className="w-4 h-4 text-[#2959ea] animate-spin shrink-0" />
-                          ) : isFailed ? (
-                            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                          ) : (
-                            <Circle className="w-4 h-4 text-slate-300 shrink-0" />
-                          )}
-                          <span className={isDone || isRunning ? 'text-[#12213b]' : 'text-[#5f708b]'}>
-                            {sIdx + 1}. {stage.label}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
+              {!sections.hasUpload && <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm leading-relaxed text-slate-600">Chưa có kết quả. Hãy tải tệp ở bước 1; hệ thống sẽ xử lý ở bước 2 và gửi đề xuất để bạn duyệt ở bước 3.</div>}
+              {sections.hasUpload && !sections.resultsReady && <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-slate-600">{workflow.running ? 'Đang xử lý học liệu này. Các ý chính sẽ xuất hiện khi có kết quả từ lượt chạy.' : 'Chưa có kết quả cho phiên bản học liệu này. Tiếp tục ở bước 2 trong luồng phía trên.'}</div>}
+              {sections.resultsReady && !summaryRows.length && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Chưa tìm được ý chính có dẫn chứng trong tệp này. Xem mục cần bổ sung ở bước 3; hệ thống chưa thể tạo câu hỏi hoặc kế hoạch từ nguồn hiện có.</div>}
               {/* Case E: Analyzed Rows matching Concept PNG layout (Review line 32 typography) */}
-              {workflow.analyzed && !workflow.running && (
+              {sections.resultsReady && !workflow.running && (
                 <div className="space-y-4">
                   <div className="divide-y divide-[#e1e7ef]">
                     {summaryRows.map((row, idx) => (
@@ -809,7 +649,7 @@ export const AiWorkspaceView: React.FC = () => {
                           {workflow.unsupportedCount} nội dung chưa đủ nguồn
                         </div>
                         <p className="text-amber-900 mt-0.5 leading-relaxed">
-                          Chưa đưa nhận định về độ phức tạp vào bản giao cho học viên.
+                          {workspace?.findings.filter(finding => !finding.has_evidence).map(finding => finding.title).join('; ')}
                         </p>
                       </div>
                     </div>
@@ -823,7 +663,7 @@ export const AiWorkspaceView: React.FC = () => {
                           <button
                             ref={reviewBtnRef}
                             type="button"
-                            onClick={() => setIsReviewModalOpen(true)}
+                            onClick={() => goToWorkflow(3)}
                             disabled={actionLoading}
                             className="w-full sm:flex-1 min-h-[44px] py-2.5 px-5 bg-[#2959ea] hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
                           >
@@ -881,7 +721,7 @@ export const AiWorkspaceView: React.FC = () => {
           )}
 
           {/* TAB 2: CÂU HỎI TỪ BÀI GIẢNG */}
-          {activeTab === 'questions' && (
+          {activeTab === 'questions' && sections.canQuestions && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -889,7 +729,7 @@ export const AiWorkspaceView: React.FC = () => {
                     Câu hỏi từ bài giảng
                   </h3>
                   <p className="text-xs text-[#5f708b] mt-0.5">
-                    Được sinh tự động từ các khái niệm đã có nguồn chứng minh.
+                    Câu hỏi nháp lấy từ các ý chính bạn đã duyệt, kèm căn cứ trong học liệu này.
                   </p>
                 </div>
                 {activeAssessment && (
@@ -997,6 +837,7 @@ export const AiWorkspaceView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleStartEditQuestion(q)}
+                              disabled={activeAssessment.status === 'published'}
                               className="text-slate-400 hover:text-[#2959ea] min-h-[44px] min-w-[44px] flex items-center justify-center p-1 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-lg"
                               title="Chỉnh sửa câu hỏi"
                             >
@@ -1025,6 +866,7 @@ export const AiWorkspaceView: React.FC = () => {
                             })}
                           </div>
 
+                          {(() => { const evidence = workspace?.evidence.find(item => item.id === q.evidence_id && item.valid && item.verified); return evidence ? <button type="button" onClick={() => handleSelectEvidence(evidence)} className="min-h-[44px] text-xs font-semibold text-blue-700">Xem căn cứ câu {idx + 1}: {formatEvidenceLabel(evidence)}</button> : <p className="text-xs text-amber-700">Nguồn của câu hỏi không còn phù hợp; cần tạo lại câu hỏi cho học liệu hiện tại.</p>; })()}
                           {q.explanation && (
                             <p className="text-xs text-[#5f708b] italic pt-1.5 border-t border-[#e1e7ef]/60">
                               Giải thích: {q.explanation}
@@ -1037,12 +879,14 @@ export const AiWorkspaceView: React.FC = () => {
 
                   {/* Publish Assessment Action */}
                   {activeAssessment.status !== 'published' && (
-                    <div className="pt-2 flex justify-end">
+                    <div className="pt-2 flex flex-col items-end gap-2">
+                      {!workflow.published && <p className="text-xs text-slate-500">Xuất bản bài giảng ở bước 3 trước khi giao bộ câu hỏi này cho học viên.</p>}
                       <button
                         type="button"
                         onClick={() => handlePublishAssessment(activeAssessment.id)}
-                        disabled={actionLoading}
-                        className="min-h-[44px] px-5 py-2 bg-[#2959ea] hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
+                        disabled={actionLoading || !workflow.published}
+                        title={workflow.published ? 'Giao bộ câu hỏi của bài này' : 'Xuất bản bài giảng trước khi giao câu hỏi cho học viên'}
+                        className="min-h-[44px] px-5 py-2 bg-[#2959ea] hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs sm:text-sm rounded-xl transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
                       >
                         Xuất bản câu hỏi cho học viên
                       </button>
@@ -1054,14 +898,14 @@ export const AiWorkspaceView: React.FC = () => {
           )}
 
           {/* TAB 3: CẢI TIẾN (Review line 30: Uses actual planned segments + real API simulation) */}
-          {activeTab === 'improve' && (
+          {activeTab === 'improve' && sections.canImprove && (
             <div className="space-y-4">
               <div>
                 <h3 className="font-bold text-sm sm:text-base text-[#12213b]">
                   Kịch bản thử nghiệm phân bổ bài giảng (What-If)
                 </h3>
                 <p className="text-xs sm:text-sm text-[#5f708b] mt-0.5">
-                  Thử nghiệm thêm 10 phút bài tập thực hành DFS nhưng không vượt quá tổng thời lượng bài giảng ({totalPlannedMinutes} phút).
+                  Thử thêm 10 phút cho {practiceName}, giữ tổng thời lượng {totalPlannedMinutes} phút. Đây là kế hoạch đề xuất từ các ý chính đã duyệt, không phải thời lượng đo từ video.
                 </p>
               </div>
 
@@ -1076,7 +920,7 @@ export const AiWorkspaceView: React.FC = () => {
               <div className="border border-[#e1e7ef] rounded-xl p-4 bg-[#f6f8fc] space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs sm:text-sm text-[#12213b]">
-                    Phân bổ kế hoạch hiện tại (Baseline): {totalPlannedMinutes} phút
+                    Kế hoạch đề xuất từ nội dung đã duyệt: {totalPlannedMinutes} phút
                   </span>
                   <span className="text-xs text-[#5f708b]">
                     {plannedSegments.length} phân đoạn
@@ -1104,7 +948,7 @@ export const AiWorkspaceView: React.FC = () => {
                 <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-4 space-y-3 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-xs sm:text-sm text-[#2959ea]">
-                      Kết quả mô phỏng (+{simComparison.practice_delta} phút thực hành DFS)
+                      Kết quả tính thử (+{simComparison.practice_delta} phút cho {practiceName})
                     </span>
                     <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
                       simComparison.feasible
@@ -1158,7 +1002,7 @@ export const AiWorkspaceView: React.FC = () => {
                   ) : (
                     <>
                       <PlayCircle className="w-4 h-4" />
-                      <span>Thử thêm 10 phút thực hành DFS</span>
+                      <span>Thử thêm 10 phút cho {practiceName}</span>
                     </>
                   )}
                 </button>
@@ -1176,6 +1020,8 @@ export const AiWorkspaceView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {!sections.hasUpload && workspace?.lecture.sample_attached && <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold text-blue-700">Xem video ví dụ có sẵn</summary><p className="my-3 text-xs leading-relaxed text-slate-500">Nguồn tham khảo để xem cách trình bày. Kết quả trong luồng tải tệp chỉ được tạo từ học liệu bạn gửi.</p><VideoPlayer lectureId={currentLectureId} variant="embedded" sampleAttached={true} /></details>}
 
       {/* 4. Bottom Footer Area matching concept */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm pt-2">

@@ -68,7 +68,11 @@ def workspace(lecture, user):
         result.pop('attempts', None)
     scenarios = [] if user['role'] == 'student' else store.items('scenarios', lid)
     progress = store.get('progress', f"{user['id']}:{lid}") or {'position_seconds': 0, 'completed': False, 'bookmarks': []}
-    return {'lecture': summary(data), 'planned': data['planned'],
+    try:
+        assessment_ready = bool(create_questions(data))
+    except ValueError:
+        assessment_ready = False
+    return {'lecture': summary(data), 'planned': data['planned'], 'capabilities': {'can_generate_assessment': assessment_ready},
         **{k: data.get(k, []) for k in ('assets', 'transcript', 'slides', 'concepts', 'edges', 'evidence', 'findings')},
         'jobs': sorted(jobs, key=lambda j: j['created_at'], reverse=True), 'assessments': assessments, 'scenarios': scenarios,
         'progress': progress, 'twin': {'planned': data['planned'], 'observed': {'concepts': len(data.get('concepts', [])),
@@ -120,18 +124,63 @@ def create_questions(lecture):
     verified = {c['id'] for c in lecture['concepts'] if c.get('verified')}
     definitions = [
         ('q-bfs', 'BFS sử dụng cấu trúc dữ liệu nào để duyệt theo lớp?', 'bfs', [('a', 'Hàng đợi FIFO'), ('b', 'Ngăn xếp LIFO'), ('c', 'Không cần lưu đỉnh chờ')], 'a', 'BFS lưu các đỉnh chờ trong hàng đợi vào trước ra trước.'),
-        ('q-dfs', 'Theo video, DFS làm gì khi vừa gặp một đỉnh mới chưa thăm?', 'dfs', [('a', 'Tạm dừng nhánh hiện tại và đi sâu từ đỉnh mới'), ('b', 'Luôn xét hết mọi đỉnh cùng tầng trước'), ('c', 'Bỏ qua đỉnh mới và kết thúc')], 'a', 'DFS ưu tiên đi sâu theo nhánh mới; khi nhánh không còn đỉnh kề chưa thăm thì quay lui.'),
+        ('q-dfs', 'Theo học liệu, DFS làm gì khi vừa gặp một đỉnh mới chưa thăm?', 'dfs', [('a', 'Tạm dừng nhánh hiện tại và đi sâu từ đỉnh mới'), ('b', 'Luôn xét hết mọi đỉnh cùng tầng trước'), ('c', 'Bỏ qua đỉnh mới và kết thúc')], 'a', 'DFS ưu tiên đi sâu theo nhánh mới; khi nhánh không còn đỉnh kề chưa thăm thì quay lui.'),
         ('q-visited', 'Vì sao cần đánh dấu đỉnh đã thăm?', 'graph', [('a', 'Để thay đổi cạnh của đồ thị'), ('b', 'Để tránh xử lý lặp lại các đỉnh'), ('c', 'Để biến DFS thành BFS')], 'b', 'Bộ đánh dấu đã thăm giúp tránh lặp lại các đỉnh trong quá trình duyệt.'),
     ]
     questions = []
+    supporting_terms = {'q-bfs': ['hàng đợi', 'fifo', 'queue'], 'q-dfs': ['đi sâu', 'quay lui', 'ngăn xếp', 'deep', 'backtrack', 'stack'],
+        'q-visited': ['đã thăm', 'đánh dấu', 'tránh lặp', 'visited', 'avoid repeat']}
     for qid, text, cid, options, correct, explanation in definitions:
-        evidence = next((e for e in lecture['evidence'] if e['concept_id'] == cid and e.get('verified') and e.get('valid')), None)
+        evidence = next((e for e in lecture['evidence'] if e['concept_id'] == cid and e.get('verified') and e.get('valid') and any(term in e['text'].lower() for term in supporting_terms[qid])), None)
         if cid in verified and evidence:
             questions.append({'id': qid, 'text': text, 'concept_id': cid, 'evidence_id': evidence['id'],
                 'options': [{'id': oid, 'text': label} for oid, label in options], 'correct_option_id': correct, 'explanation': explanation})
     if not questions:
         raise ValueError('Chưa có nguồn đã xác minh phù hợp với ngân hàng câu hỏi mẫu BFS/DFS')
     return questions
+
+
+def plan_from_verified_source(lecture):
+    """A proposed timetable from reviewed topics, never a measured video timeline."""
+    concepts = [concept for concept in lecture['concepts'] if concept.get('verified')]
+    total = lecture['total_minutes']
+    if not concepts:
+        lecture['planned'] = {'objectives': deepcopy(lecture['objectives']), 'total_minutes': total, 'segments': [], 'origin': 'awaiting_source_review'}
+        return
+    verified = {concept['id'] for concept in concepts}
+    if lecture['planned'].get('origin') == 'scenario_draft' and all(cid in verified for segment in lecture['planned']['segments'] for cid in segment.get('concept_ids', [segment['concept_id']])):
+        lecture['planned']['source_version'] = lecture['version']
+        return
+    intro = max(2, round(total * .1))
+    practice = max(3, round(total * .2))
+    budget = total - 2 * intro - practice
+    count = min(len(concepts), max(1, budget // 5))
+    groups = [concepts[index::count] for index in range(count)]
+    segments = [{'id': 'intro', 'title': 'Mở đầu và mục tiêu', 'concept_id': concepts[0]['id'], 'kind': 'intro', 'minutes': intro}]
+    for index, group in enumerate(groups):
+        segments.append({'id': f'topic-{index}', 'title': ' / '.join(c['label'] for c in group), 'concept_id': group[0]['id'],
+            'concept_ids': [c['id'] for c in group], 'kind': 'theory', 'minutes': budget // count + (index < budget % count)})
+    target = next((c for c in concepts if c['id'] == 'dfs'), next((c for c in concepts if c['id'] == 'bfs'), concepts[0]))
+    segments.extend([
+        {'id': 'practice', 'title': f"Thực hành: {target['label']}", 'concept_id': target['id'], 'kind': 'practice', 'minutes': practice},
+        {'id': 'summary', 'title': 'Tổng kết và kiểm tra', 'concept_id': concepts[-1]['id'], 'kind': 'summary', 'minutes': intro},
+    ])
+    lecture['planned'] = {'objectives': deepcopy(lecture['objectives']), 'total_minutes': total, 'segments': segments,
+        'origin': 'verified_source_proposal', 'source_version': lecture['version']}
+
+
+def ensure_reviewed_source(lecture):
+    verified = {c['id'] for c in lecture['concepts'] if c.get('verified')}
+    if lecture.get('analysis_version') != lecture['version'] or not verified or len(verified) != len(lecture['concepts']) or any(f['status'] == 'pending' for f in lecture['findings']):
+        raise HTTPException(409, 'Duyệt nội dung của phiên bản hiện tại trước khi tạo câu hỏi hoặc thử thay đổi kế hoạch')
+
+
+def ensure_planning_ready(lecture):
+    ensure_reviewed_source(lecture)
+    verified = {c['id'] for c in lecture['concepts'] if c.get('verified')}
+    segments = lecture['planned'].get('segments', [])
+    if not segments or any(cid not in verified for segment in segments for cid in segment.get('concept_ids', [segment['concept_id']])):
+        raise HTTPException(409, 'Kế hoạch chưa khớp với các ý chính đã duyệt của học liệu này')
 
 
 def evaluate_scenario(lecture, delta, total_limit):

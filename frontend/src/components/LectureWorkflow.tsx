@@ -8,14 +8,14 @@ import { analysisProgress, formatTimestamp, latestAnalysis, lessonWorkflow, uplo
 type Phase = 'uploading' | 'analyzing' | null;
 const buttonClass = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500';
 
-export function LectureWorkflow({ onReview, onPublish }: { onReview: () => void; onPublish: () => Promise<void> }) {
+export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onShowResults }: { onReview: () => void; onPublish: () => Promise<void>; step: 1 | 2 | 3; onStepChange: (step: 1 | 2 | 3) => void; onShowResults: () => void }) {
   const { workspace, bootstrap, currentLectureId, selectLecture, refreshWorkspace, refreshBootstrap, activeJob, setActiveJob, seekVideoTo } = useApp();
   const workflow = lessonWorkflow(workspace);
   const userAssets = workspace?.assets.filter(asset => asset.source_type === 'user_upload') || [];
   const selectedJob = activeJob?.workflow === 'analysis' && activeJob.lecture_id === currentLectureId && activeJob.input?.version === workspace?.lecture.version
     ? activeJob : latestAnalysis(workspace);
   const job = userAssets.length ? selectedJob : null;
-  const [step, setStep] = useState<1 | 2 | 3>(job ? 2 : 1);
+  const setStep = onStepChange;
   const [files, setFiles] = useState<File[]>([]);
   const [phase, setPhase] = useState<Phase>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,7 @@ export function LectureWorkflow({ onReview, onPublish }: { onReview: () => void;
   const running = busy || Boolean(job && ['queued', 'running'].includes(job.status));
   const limit = bootstrap?.upload_limit_mb ?? 25;
   const canReview = userAssets.length > 0 && (workflow.canReview || workflow.reviewed || workflow.published);
-  const needsNewLecture = workspace?.lecture.status === 'published' || workspace?.lecture.sample_attached || Boolean(selectedJob && ['queued', 'running', 'paused', 'needs_review'].includes(selectedJob.status));
+  const needsNewLecture = Boolean(workspace?.assets.length) || workspace?.lecture.status === 'published' || Boolean(selectedJob && ['queued', 'running', 'paused', 'needs_review'].includes(selectedJob.status));
   const stages = analysisProgress(job).slice(0, 3);
 
   const chooseFiles = (incoming: File[]) => {
@@ -107,7 +107,7 @@ export function LectureWorkflow({ onReview, onPublish }: { onReview: () => void;
     { id: 3 as const, title: 'Bạn duyệt', hint: canReview && workflow.published ? 'Đã xuất bản' : canReview && workflow.reviewed ? 'Đã duyệt' : canReview ? 'Chờ bạn kiểm tra' : 'Chờ AI xử lý xong', icon: ShieldCheck, done: canReview && (workflow.reviewed || workflow.published) },
   ];
 
-  return <section aria-label="Tải học liệu, AI xử lý và bạn duyệt" className="overflow-hidden rounded-2xl border border-[#dbe4f3] bg-white shadow-sm">
+  return <section id="lecture-workflow" aria-label="Tải học liệu, AI xử lý và bạn duyệt" className="scroll-mt-28 overflow-hidden rounded-2xl border border-[#dbe4f3] bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
       <p className="text-sm font-bold text-[#12213b]">Từ tệp bài giảng đến nội dung đã duyệt</p>
       <div className="min-w-0">
@@ -136,7 +136,7 @@ export function LectureWorkflow({ onReview, onPublish }: { onReview: () => void;
           </label>
           {!!files.length && <ul aria-label="Tệp đã chọn" className="space-y-2">{files.map(file => <li key={file.name} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm"><span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-blue-600" /><span className="break-all">{file.name}</span><span className="shrink-0 text-xs text-slate-500">{file.size < 1024 * 1024 ? `${Math.max(1, Math.ceil(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`}</span></span><button type="button" disabled={busy} aria-label={`Bỏ tệp ${file.name}`} onClick={() => setFiles(files.filter(item => item !== file))} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-slate-100"><X className="h-4 w-4" /></button></li>)}</ul>}
           <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">Nếu tải video, hãy gửi kèm phụ đề VTT/JSON hoặc tài liệu có văn bản để phân tích nội dung. Bản demo chưa tự nghe lời nói, đọc hình trong video hoặc nhận chữ từ trang ảnh.</p>
-          {needsNewLecture && <p className="text-xs text-slate-500">Các tệp mới sẽ được lưu thành bài giảng riêng, giữ nguyên bài đang xem.</p>}
+          {needsNewLecture && <p className="text-xs text-slate-500">Những tệp được chọn trong lần tải này tạo thành một bài giảng mới. Bài đang xem được giữ nguyên; tệp cũ không tự ghép vào bài mới.</p>}
           {!!userAssets.length && <div className="space-y-2"><p className="text-xs font-semibold text-slate-500">Tệp của bài đang xem</p>{userAssets.map(asset => <p key={asset.id} className="flex items-center gap-2 text-sm text-slate-600"><Check className="h-4 w-4 text-emerald-600" />{asset.name}</p>)}</div>}
           <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={!files.length || running} onClick={uploadAndAnalyze} className={buttonClass}>{busy ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : <ArrowRight className="h-4 w-4" />}{phase === 'uploading' ? 'Đang tải tệp lên…' : 'Tải lên và phân tích'}</button></div>
         </div>}
@@ -146,7 +146,7 @@ export function LectureWorkflow({ onReview, onPublish }: { onReview: () => void;
             <ol className="grid gap-3 lg:grid-cols-3">{stages.map((stage, index) => <li key={stage.id} className={`rounded-xl border p-4 ${stage.status === 'completed' ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-slate-50'}`}><p className="flex items-center gap-2 text-sm font-bold text-[#12213b]">{stage.status === 'completed' ? <Check className="h-4 w-4 text-emerald-600" /> : stage.status === 'running' ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : `${index + 1}.`}{stage.title}</p><p className="mt-2 text-sm leading-relaxed text-slate-600">{stage.detail}</p></li>)}</ol>
             {!workflow.hasText && job && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Chưa có văn bản để phân tích nội dung. Hệ thống chỉ đọc được thông tin tệp; cần bổ sung phụ đề hoặc tài liệu có văn bản. Chưa có căn cứ để tạo ý chính.</p>}
             {workflow.hasText && job?.status === 'needs_review' && !workspace?.concepts.length && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Đã đọc tệp nhưng chưa nhận diện được ý chính cho chủ đề này. Bộ xử lý minh họa hiện hỗ trợ nội dung BFS/DFS; cần bổ sung bộ xử lý hoặc nội dung do giảng viên biên soạn.</p>}
-            {!!workspace?.concepts.length && <div className="grid gap-2 sm:grid-cols-2">{workspace.concepts.map(concept => { const evidence = workspace.evidence.find(item => item.concept_id === concept.id && item.valid); return <div key={concept.id} className="rounded-xl border border-slate-200 p-3"><h3 className="text-sm font-bold text-[#12213b]">{concept.label}</h3><p className="mt-1 text-sm text-slate-600">{concept.description}</p>{evidence && <><p className="mt-2 text-xs leading-relaxed text-slate-500">Nguồn: “{evidence.text}”</p>{evidence.start != null && workspace.assets.some(asset => asset.kind === 'video') ? <button type="button" onClick={() => openSource(evidence.start!)} className="min-h-[44px] text-xs font-semibold text-blue-700">Xem mốc {formatTimestamp(evidence.start)}</button> : <p className="mt-2 text-xs font-semibold text-blue-700">{evidence.start != null ? `Phụ đề tại ${formatTimestamp(evidence.start)}` : `Trang ${evidence.slide_page}`}</p>}</>}</div>; })}</div>}
+            {!!workspace?.concepts.length && <button type="button" onClick={onShowResults} className="min-h-[44px] rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700">Xem {workspace.concepts.length} ý chính và dẫn chứng bên dưới</button>}
             {job?.error && <p role="alert" className="text-sm text-red-700">{job.error}</p>}
           </>}
           <p className="text-xs text-slate-500">Bản demo dùng luật và từ khóa để xử lý văn bản; chưa kết nối mô hình AI bên ngoài.</p>

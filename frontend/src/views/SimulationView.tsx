@@ -11,13 +11,20 @@ import {
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
 import { ScenarioComparison } from '../types';
+import { lessonWorkflow, workspaceSections } from '../presentation';
 
 export const SimulationView: React.FC = () => {
-  const { workspace, currentLectureId, refreshWorkspace, role } = useApp();
+  const { workspace, currentLectureId, refreshWorkspace, role, setCurrentView } = useApp();
   const totalMinutes = workspace?.lecture.total_minutes ?? workspace?.planned?.total_minutes ?? 0;
   const savedScenarios = workspace?.scenarios || [];
+  const workflow = lessonWorkflow(workspace);
+  const practiceName = workspace?.planned.segments.find(segment => segment.kind === 'practice')?.title || 'phần thực hành';
+  const ready = workspace?.lecture.sample_attached
+    ? Boolean((workflow.reviewed || workflow.published) && workspace.planned.segments.length)
+    : workspaceSections(workspace).canImprove;
+  const defaultRequest = `Thêm 10 phút cho ${practiceName} nhưng không tăng tổng thời lượng bài giảng`;
 
-  const [requestText, setRequestText] = useState<string>('Thêm 10 phút bài tập thực hành DFS nhưng không tăng tổng thời lượng bài giảng');
+  const [requestText, setRequestText] = useState<string>(defaultRequest);
   const [addPractice, setAddPractice] = useState<number>(10);
   const [loading, setLoading] = useState<boolean>(false);
   const [comparison, setComparison] = useState<ScenarioComparison | null>(null);
@@ -34,6 +41,7 @@ export const SimulationView: React.FC = () => {
     setComparison(null);
     setActiveScenarioId(null);
     setMsg(null);
+    setRequestText(defaultRequest);
     if (simAbortRef.current) {
       simAbortRef.current.abort();
       simAbortRef.current = null;
@@ -44,11 +52,11 @@ export const SimulationView: React.FC = () => {
         simAbortRef.current = null;
       }
     };
-  }, [currentLectureId]);
+  }, [currentLectureId, workspace?.lecture.version]);
 
   const handleRunSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentLectureId) return;
+    if (!currentLectureId || !ready) return;
     if (simAbortRef.current) {
       simAbortRef.current.abort();
     }
@@ -113,6 +121,8 @@ export const SimulationView: React.FC = () => {
           Nhập số phút muốn thay đổi để xem lại phân bổ thời gian. Đây là phương án xem trước; chưa áp dụng vào bài đang dạy.
         </p>
       </div>
+
+      {!ready && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Cần duyệt nội dung và có kế hoạch khớp với học liệu hiện tại trước khi tính phương án thử. <button type="button" onClick={() => setCurrentView('ai')} className="min-h-[44px] font-semibold text-blue-700 underline">Quay về bài giảng để kiểm tra</button></div>}
 
       {savedScenarios.length > 0 && (
         <section className="bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3" aria-labelledby="saved-scenarios-title">
@@ -228,7 +238,7 @@ export const SimulationView: React.FC = () => {
           <div className="flex items-center justify-end pt-2 border-t border-[#e1e7ef]">
             <button
               type="submit"
-              disabled={loading || !activeScenarioMatchesCurrentPlan || totalMinutes <= 0}
+              disabled={loading || !ready || !activeScenarioMatchesCurrentPlan || totalMinutes <= 0}
               className="min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#2959ea] hover:bg-blue-700 disabled:opacity-50 shadow-xs transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
             >
               <PlayCircle className="w-4 h-4" />

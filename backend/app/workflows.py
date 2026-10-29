@@ -284,7 +284,7 @@ def execute(job_id):
             if boundary(job_id): return
             questions = generated['result']['questions']
             step(job, 'verification', 'validate_evidence', lambda _: {'valid': all(q['evidence_id'] in {e['id'] for e in lecture['evidence'] if e['verified']} for q in questions), 'question_count': len(questions)}, None)
-            assessment = {'id': store.uid('quiz'), 'lecture_id': lecture['id'], 'owner_id': job['owner_id'], 'version': lecture['version'], 'title': 'Tự kiểm tra BFS & DFS', 'status': 'draft', 'questions': questions, 'created_at': store.now()}
+            assessment = {'id': store.uid('quiz'), 'lecture_id': lecture['id'], 'owner_id': job['owner_id'], 'version': lecture['version'], 'title': 'Tự kiểm tra · ' + lecture['title'], 'status': 'draft', 'questions': questions, 'created_at': store.now()}
             store.put('assessments', assessment)
             final = {'assessment_id': assessment['id'], 'question_count': len(questions)}
         elif job['workflow'] == 'planning':
@@ -292,7 +292,7 @@ def execute(job_id):
             if boundary(job_id): return
             comparison = planned['result']
             step(job, 'verification', 'validate_constraints', lambda _: {'feasible': comparison['feasible'], 'violations': comparison['violations']}, None)
-            scenario = {'id': store.uid('scenario'), 'lecture_id': lecture['id'], 'owner_id': job['owner_id'], 'title': job['input'].get('title') or 'Tăng thực hành DFS', 'base_version': lecture['version'],
+            scenario = {'id': store.uid('scenario'), 'lecture_id': lecture['id'], 'owner_id': job['owner_id'], 'title': job['input'].get('title') or 'Thử phân bổ thời lượng', 'base_version': lecture['version'],
                 'request': job['input']['request'], 'comparison': comparison, 'segments': comparison['scenario_segments'], 'created_at': store.now(), 'status': 'draft'}
             store.put('scenarios', scenario)
             domain.snapshot(lecture, 'scenario_evaluated', 'Đã tính kịch bản riêng; không thay đổi bản gốc hay điểm số học tập')

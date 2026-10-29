@@ -301,6 +301,8 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
         raise HTTPException(422, f'Không đọc được học liệu: {error}') from error
     store.save_media(path)
     lecture['assets'] = [a for a in lecture['assets'] if a['kind'] != kind] + [asset]
+    lecture['version'] += 1
+    lecture['planned'] = {'objectives': deepcopy(lecture['objectives']), 'total_minutes': lecture['total_minutes'], 'segments': [], 'origin': 'awaiting_source_review'}
     lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[], coverage=[], guided_demo=False)
     domain.snapshot(lecture, 'asset_uploaded', f'Tải {kind}; chờ phân tích nguồn mới')
     store.audit(user, 'UPLOAD_ASSET', {'asset_id': aid, 'kind': kind}, lid)
@@ -393,6 +395,8 @@ def after_review(lecture):
         lecture['concepts'] = [c for c in lecture['concepts'] if c['id'] not in rejected]
         ids = {c['id'] for c in lecture['concepts']}
         lecture['edges'] = [e for e in lecture['edges'] if e['source'] in ids and e['target'] in ids]
+        if not lecture.get('sample_attached'):
+            domain.plan_from_verified_source(lecture)
     domain.snapshot(lecture, 'teacher_review', 'Giảng viên quyết định đối với bằng chứng, giữ nguyên dấu vết nội dung bị loại')
     if not any(f['status'] == 'pending' for f in lecture['findings']):
         for job in store.items('jobs', lecture['id']):
@@ -483,13 +487,18 @@ def tutor(lid: str, body: TutorQuestion, user=Depends(current_user)):
 
 @app.post('/api/lectures/{lid}/assessments/generate')
 def generate_assessment(lid: str, user=Depends(current_user)):
-    return workflows.create_job(user, lecture_access(user, lid, edit=True), 'assessment')
+    lecture = lecture_access(user, lid, edit=True)
+    domain.ensure_reviewed_source(lecture)
+    try: domain.create_questions(lecture)
+    except ValueError as error: raise HTTPException(422, str(error)) from error
+    return workflows.create_job(user, lecture, 'assessment')
 
 
 def assessment_access(aid, user, edit=False):
     assessment = store.get('assessments', aid)
     if not assessment: raise HTTPException(404, 'Không tìm thấy bài kiểm tra')
     lecture = lecture_access(user, assessment['lecture_id'], edit=edit)
+    if edit and assessment['version'] != lecture['version']: raise HTTPException(409, 'Bộ câu hỏi thuộc học liệu phiên bản cũ; hãy tạo bộ câu hỏi cho phiên bản hiện tại')
     if user['role'] == 'student' and (assessment['status'] != 'published' or assessment['version'] != lecture['published_version']): raise HTTPException(403, 'Bài kiểm tra chưa được giao')
     return assessment, lecture
 
@@ -569,7 +578,7 @@ def get_analytics(lid: str, user=Depends(current_user)):
 
 
 class ScenarioRequest(BaseModel):
-    title: str = Field(default='Tăng thời gian thực hành DFS', max_length=160)
+    title: str = Field(default='Thử phân bổ thời lượng', max_length=160)
     request: str = Field(min_length=3, max_length=1200)
     add_practice_minutes: int = Field(default=10, ge=1, le=60)
     total_limit: int = Field(default=50, ge=15, le=180)
@@ -577,7 +586,9 @@ class ScenarioRequest(BaseModel):
 
 @app.post('/api/lectures/{lid}/scenarios')
 def scenario(lid: str, body: ScenarioRequest, user=Depends(current_user)):
-    return workflows.create_job(user, lecture_access(user, lid, edit=True), 'planning', body.model_dump())
+    lecture = lecture_access(user, lid, edit=True)
+    domain.ensure_planning_ready(lecture)
+    return workflows.create_job(user, lecture, 'planning', body.model_dump())
 
 
 @app.post('/api/scenarios/{sid}/create-version')
@@ -593,6 +604,7 @@ def scenario_version(sid: str, user=Depends(current_user)):
         lecture.update(status='draft_changes', analysis_version=None)
         lecture['planned']['segments'] = deepcopy(scenario['segments'])
         lecture['planned']['total_minutes'] = scenario['comparison']['scenario_total']
+        lecture['planned'].update(origin='scenario_draft', source_version=lecture['version'])
         lecture['total_minutes'] = lecture['planned']['total_minutes']
         domain.snapshot(lecture, 'scenario_draft_version', 'Tạo bản nháp mới; snapshot đã xuất bản không thay đổi')
         store.audit(user, 'CREATE_SCENARIO_VERSION', sid, lecture['id'])

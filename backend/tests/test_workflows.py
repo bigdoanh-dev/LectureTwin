@@ -227,6 +227,57 @@ def test_unrecognized_uploaded_topic_never_inherits_sample_findings(client):
     assert [finding['id'] for finding in lecture['findings']] == ['finding-scope']
 
 
+def test_uploaded_source_drives_plan_questions_and_version_invalidation(client):
+    teacher = login(client)
+    path = '/api/lectures/lec-bfs-dfs'
+    captions = 'WEBVTT\n\n00:00.000 --> 00:10.000\nBFS duyệt đồ thị bằng hàng đợi FIFO và đánh dấu đỉnh đã thăm.\n'
+    uploaded = client.post(path+'/assets', headers=teacher, data={'kind':'transcript'}, files={'file':('bfs-only.vtt',captions.encode(),'text/vtt')}).json()
+    version = uploaded['lecture']['version']
+    assert uploaded['planned']['segments'] == []
+    request = {'request':'Thêm 10 phút thực hành', 'add_practice_minutes':10, 'total_limit':50}
+    assert client.post(path+'/scenarios',headers=teacher,json=request).status_code == 409
+    post(client, '/lectures/lec-bfs-dfs/analyze', teacher)
+    assert client.post(path+'/assessments/generate',headers=teacher,json={}).status_code == 409
+    post(client, '/lectures/lec-bfs-dfs/review', teacher, {'exclude_unsupported':True,'note':'Đã kiểm tra nguồn BFS vừa tải.'})
+    lecture = store.get('lectures','lec-bfs-dfs')
+    verified = {c['id'] for c in lecture['concepts'] if c['verified']}
+    assert lecture['planned']['source_version'] == version
+    assert all(cid in verified for segment in lecture['planned']['segments'] for cid in segment.get('concept_ids',[segment['concept_id']]))
+    assert not any('DFS' in segment['title'] for segment in lecture['planned']['segments'])
+    assert sum(segment['minutes'] for segment in lecture['planned']['segments']) == lecture['total_minutes']
+    quiz_job = post(client,'/lectures/lec-bfs-dfs/assessments/generate',teacher)
+    quiz = store.get('assessments',quiz_job['result']['assessment_id'])
+    assert all(q['concept_id'] in verified and q['evidence_id'] in {e['id'] for e in lecture['evidence']} for q in quiz['questions'])
+    scenario = post(client,'/lectures/lec-bfs-dfs/scenarios',teacher,request)
+    assert scenario['result']['comparison']['baseline_segments'] == lecture['planned']['segments']
+    replacement = 'WEBVTT\n\n00:00.000 --> 00:10.000\nDFS dùng ngăn xếp và quay lui.\n'
+    new = client.post(path+'/assets',headers=teacher,data={'kind':'transcript'},files={'file':('dfs-only.vtt',replacement.encode(),'text/vtt')}).json()
+    assert new['lecture']['version'] == version+1
+    assert not new['lecture']['analysis_current'] and new['planned']['segments'] == []
+    assert client.patch('/api/assessments/'+quiz['id'],headers=teacher,json={'title':'Không sửa nhầm đề cũ'}).status_code == 409
+    assert client.post(path+'/scenarios',headers=teacher,json=request).status_code == 409
+    assert client.post(path+'/assessments/generate',headers=teacher,json={}).status_code == 409
+    post(client,'/lectures/lec-bfs-dfs/analyze',teacher)
+    post(client,'/lectures/lec-bfs-dfs/review',teacher,{'exclude_unsupported':True,'note':'Đã kiểm tra nguồn DFS mới.'})
+    current = store.get('lectures','lec-bfs-dfs')
+    assert 'bfs' not in {c['id'] for c in current['concepts']}
+    assert not any('BFS' in segment['title'] for segment in current['planned']['segments'])
+
+
+def test_question_bank_requires_support_for_the_question_not_just_a_topic_name(client):
+    teacher = login(client)
+    captions = 'WEBVTT\n\n00:00.000 --> 00:05.000\nBFS là tên chủ đề trong chương tiếp theo.\n'
+    uploaded = client.post('/api/lectures/lec-bfs-dfs/assets',headers=teacher,data={'kind':'transcript'},files={'file':('topic-name-only.vtt',captions.encode(),'text/vtt')})
+    assert uploaded.status_code == 200
+    post(client,'/lectures/lec-bfs-dfs/analyze',teacher)
+    post(client,'/lectures/lec-bfs-dfs/review',teacher,{'exclude_unsupported':True,'note':'Xác nhận tệp chỉ nhắc tên chủ đề.'})
+    workspace = client.get('/api/lectures/lec-bfs-dfs',headers=teacher).json()
+    assert workspace['lecture']['analysis_current']
+    assert workspace['capabilities']['can_generate_assessment'] is False
+    assert client.post('/api/lectures/lec-bfs-dfs/assessments/generate',headers=teacher,json={}).status_code == 422
+    assert store.items('assessments','lec-bfs-dfs') == []
+
+
 def test_real_media_metadata_frames_and_http_range(client):
     lecture = store.get('lectures','lec-published')
     source = ORIGINAL_PROBE(lecture)

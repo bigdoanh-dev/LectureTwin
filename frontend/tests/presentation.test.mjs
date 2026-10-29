@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction, uploadFileKind } from '../src/presentation.ts';
+import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction, uploadFileKind, workspaceSections } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -14,6 +14,24 @@ function ready() {
   w.jobs = [{id:'actual-job',workflow:'analysis',input:{version:2},status:'completed'}];
   return w;
 }
+test('Source, questions and improvements share upload, approval and plan prerequisites', () => {
+  const w=ready();w.assets=[{kind:'video',source_type:'youtube_reference'}];
+  assert.equal(workspaceSections(w).hasUpload,false);
+  assert.equal(workspaceSections(w).resultsReady,false);
+  w.assets=[{kind:'transcript',source_type:'user_upload'}];
+  w.evidence=[{id:'uploaded-source',concept_id:'bfs',valid:true,verified:true}];
+  w.planned={source_version:2,segments:[{concept_id:'bfs',kind:'practice'}]};
+  assert.equal(workspaceSections(w).canQuestions,true);
+  assert.equal(workspaceSections(w).canImprove,true);
+  w.planned.segments[0].concept_id='dfs';
+  assert.equal(workspaceSections(w).canImprove,false);
+  w.jobs[0].status='needs_review';w.lecture.analysis_current=false;
+  assert.equal(workspaceSections(w).resultsReady,true);
+  assert.equal(workspaceSections(w).canQuestions,false);
+  w.lecture.version=3;
+  assert.equal(workspaceSections(w).resultsReady,false);
+  assert.equal(workspaceSections(w).canQuestions,false);
+});
 test('Upload flow identifies supported files without treating arbitrary text as timed captions', () => {
   assert.equal(uploadFileKind('lecture.MP4'), 'video');
   for (const name of ['notes.pdf','slides.PPTX']) assert.equal(uploadFileKind(name),'slides');

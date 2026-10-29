@@ -8,6 +8,20 @@ export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' 
   if (extension === 'vtt' || extension === 'json') return 'transcript';
   return null;
 }
+export function workspaceSections(workspace: Workspace | null) {
+  const workflow = lessonWorkflow(workspace);
+  const hasUpload = Boolean(workspace?.assets.some(asset => asset.source_type === 'user_upload'));
+  const resultsReady = hasUpload && workflow.analyzed;
+  const reviewed = hasUpload && (workflow.reviewed || workflow.published);
+  const verified = new Set((workspace?.concepts || []).filter(concept => concept.verified).map(concept => concept.id));
+  const plan = workspace?.planned;
+  const planMatches = Boolean(plan?.segments.length && (!plan.source_version || plan.source_version === workspace?.lecture.version) &&
+    plan.segments.every(segment => (segment.concept_ids || [segment.concept_id]).every(id => verified.has(id))));
+  const questionSource = workspace?.capabilities?.can_generate_assessment ?? (workspace?.evidence || []).some(evidence => evidence.valid && evidence.verified && ['bfs', 'dfs', 'graph'].includes(evidence.concept_id));
+  return { hasUpload, resultsReady, canQuestions: reviewed && questionSource, canImprove: reviewed && planMatches,
+    questionReason: !reviewed ? 'Duyệt các ý chính ở bước 3 trước khi tạo câu hỏi từ nguồn đã xác nhận.' : 'Chưa có nội dung đã duyệt phù hợp với ngân hàng câu hỏi hiện có.',
+    improvementReason: !reviewed ? 'Duyệt nội dung ở bước 3 trước khi thử thay đổi kế hoạch bài học.' : 'Chưa có kế hoạch thời lượng khớp với các ý chính đã duyệt.' };
+}
 export interface LessonSummaryRow {
   id: string;
   title: string;
@@ -19,7 +33,7 @@ export interface LessonSummaryRow {
 export function buildLessonSummary(workspace: Workspace | null): LessonSummaryRow[] {
   if (!workspace) return [];
   const preferred = ['bfs', 'dfs', 'compare'].map(id => workspace.concepts.find(c => c.id === id)).filter((c): c is ConceptNode => !!c);
-  const concepts = preferred.length ? preferred : workspace.concepts.slice(0, 3);
+  const concepts = [...preferred, ...workspace.concepts.filter(concept => !preferred.some(item => item.id === concept.id))];
   return concepts.map(concept => ({
     id: concept.id,
     title: concept.label,
