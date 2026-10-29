@@ -30,7 +30,7 @@ import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { ModalDialog } from '../components/ModalDialog';
-import { AnalysisProgress } from '../components/AnalysisProgress';
+import { GuidedLectureDemo } from '../components/GuidedLectureDemo';
 import { api } from '../api';
 import {
   buildLessonSummary,
@@ -73,7 +73,6 @@ export const AiWorkspaceView: React.FC = () => {
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isHowDemoWorksOpen, setIsHowDemoWorksOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [analysisPending, setAnalysisPending] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Concept edit state
@@ -151,21 +150,18 @@ export const AiWorkspaceView: React.FC = () => {
       if (analysisCTA.action === 'review') { setIsReviewModalOpen(true); return; }
       if (analysisCTA.action === 'wait') return;
       if ((analysisCTA.action === 'resume' || analysisCTA.action === 'retry') && workflow.job) {
-        setAnalysisPending(true);
         const job = await api.controlJob(workflow.job.id, analysisCTA.action);
         setActiveJob(job);
         await refreshWorkspace();
         return;
       }
-      setAnalysisPending(true);
-      const job = await api.startAnalysis(currentLectureId);
+      const job = await api.startAnalysis(currentLectureId, Boolean(workspace?.lecture.guided_demo));
       setActiveJob(job);
       if (job.status === 'needs_review') setActionMessage(analysisControl(job).message);
       await refreshWorkspace();
     } catch (err: any) {
       setActionMessage(err.detail || err.message || 'Không thể khởi động phân tích.');
     } finally {
-      setAnalysisPending(false);
       setActionLoading(false);
     }
   };
@@ -377,11 +373,6 @@ export const AiWorkspaceView: React.FC = () => {
       ? 'Video bài giảng đã tải lên'
       : 'Học liệu bài giảng');
 
-  // Step 3 label per Review line 26: use workflow.reviewed -> 'Đã duyệt, chờ xuất bản'
-  const step3Label = workflow.published
-    ? 'Đã hoàn tất'
-    : (workflow.reviewed ? 'Đã duyệt, chờ xuất bản' : (workflow.canReview ? 'Chờ bạn duyệt' : 'Chưa mở'));
-
   return (
     <motion.div
       initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
@@ -422,7 +413,7 @@ export const AiWorkspaceView: React.FC = () => {
       </div>
 
       {/* Notification Banner */}
-      {workflow.job && ['needs_review', 'paused', 'failed'].includes(workflow.job.status) && (
+      {!workspace?.lecture.guided_demo && workflow.job && ['needs_review', 'paused', 'failed'].includes(workflow.job.status) && (
         <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
           <p className="text-sm font-bold text-[#12213b]">{analysisCTA.action === 'review' ? 'Phân tích đã có kết quả — cần bạn kiểm tra' : analysisCTA.label}</p>
           <p className="text-sm leading-relaxed text-[#5f708b]">{analysisCTA.message}</p>
@@ -446,107 +437,12 @@ export const AiWorkspaceView: React.FC = () => {
         </div>
       )}
 
-      {/* 2. White Lecture / 3-Step Rail Row */}
-      {/* Review line 34: At < 640px use THREE FULL-WIDTH ROWS, hide connector. Desktop flex-1 fills remaining width */}
-      <div className="bg-white rounded-xl border border-[#e1e7ef] p-4 sm:p-5 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-5 sm:gap-6">
-        {/* Left: Lecture Selector */}
-        <div className="shrink-0 min-w-0 sm:w-80">
-          <div className="relative flex items-center">
-            <FileText className="w-4 h-4 text-[#2959ea] absolute left-3 pointer-events-none" />
-            <select
-              id="lecture-picker"
-              value={currentLectureId}
-              onChange={(e) => selectLecture(e.target.value)}
-              disabled={actionLoading}
-              className="w-full bg-white border border-[#e1e7ef] rounded-xl pl-9 pr-8 py-2.5 text-xs sm:text-sm font-bold text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea] cursor-pointer disabled:opacity-60 appearance-none shadow-2xs"
-            >
-              {bootstrap?.lectures.map((lec) => (
-                <option key={lec.id} value={lec.id}>
-                  {lec.title} {lec.status === 'published' ? '• (Đã xuất bản)' : `• (v${lec.version})`}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-[#5f708b] absolute right-3 pointer-events-none" />
-          </div>
-        </div>
-
-        {/* Right: 3-Step Workflow Rail (Full width rows on mobile, flex-1 fills desktop) */}
-        <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between sm:justify-end gap-3 sm:gap-4 lg:gap-6 text-xs font-semibold">
-          {/* Step 1: Học liệu */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-              workflow.hasSources ? 'bg-[#2959ea] text-white' : 'bg-slate-200 text-[#5f708b]'
-            }`}>
-              {workflow.hasSources ? <Check className="w-4 h-4 stroke-[3]" /> : '1'}
-            </div>
-            <div>
-              <span className="font-bold text-[#12213b] block">1 Học liệu</span>
-              <span className="text-xs text-[#5f708b] font-normal">
-                {workflow.hasSources ? 'Đã tải lên' : 'Chưa có tệp'}
-              </span>
-            </div>
-          </div>
-
-          <div className={`hidden sm:block flex-1 max-w-[60px] h-[2px] ${workflow.analyzed || workflow.running ? 'bg-[#2959ea]' : 'bg-[#e1e7ef]'}`} />
-
-          {/* Step 2: AI xử lý */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-              workflow.analyzed
-                ? 'bg-[#2959ea] text-white'
-                : (workflow.running ? 'bg-blue-100 text-[#2959ea]' : 'bg-slate-200 text-[#5f708b]')
-            }`}>
-              {workflow.analyzed ? (
-                <Check className="w-4 h-4 stroke-[3]" />
-              ) : workflow.running ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-[#2959ea]" />
-              ) : (
-                '2'
-              )}
-            </div>
-            <div>
-              <span className={`font-bold block ${workflow.running ? 'text-[#2959ea]' : 'text-[#12213b]'}`}>
-                2 AI xử lý
-              </span>
-              <span className="text-xs text-[#5f708b] font-normal">
-                {workflow.analyzed ? 'Đã có đề xuất' : workflow.running ? 'Đang phân tích' : 'Chưa phân tích'}
-              </span>
-            </div>
-          </div>
-
-          <div className={`hidden sm:block flex-1 max-w-[60px] h-[2px] ${workflow.published || workflow.reviewed ? 'bg-[#2959ea]' : 'bg-[#e1e7ef]'}`} />
-
-          {/* Step 3: Bạn duyệt */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-              workflow.published || workflow.reviewed
-                ? 'bg-[#2959ea] text-white'
-                : (workflow.canReview ? 'bg-[#2959ea] text-white' : 'bg-slate-200 text-[#5f708b]')
-            }`}>
-              {workflow.published || workflow.reviewed ? (
-                <Check className="w-4 h-4 stroke-[3]" />
-              ) : (
-                '3'
-              )}
-            </div>
-            <div>
-              <span className={`font-bold block ${workflow.canReview || workflow.reviewed ? 'text-[#2959ea]' : 'text-[#12213b]'}`}>
-                3 Bạn duyệt
-              </span>
-              <span className="text-xs text-[#5f708b] font-normal">
-                {step3Label}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <AnalysisProgress pending={analysisPending} job={activeJob?.workflow === 'analysis' && activeJob.lecture_id === currentLectureId && activeJob.input?.version === workspace?.lecture.version ? activeJob : workflow.job} />
+      <GuidedLectureDemo key={currentLectureId} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
 
       {/* 3. Main Workspace Grid: Left 43% (Bài giảng gốc) vs Right 57% (Đề xuất từ học liệu) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT 43% (~5 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
-        <div className="lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
+        <div id="lecture-source-panel" className="scroll-mt-28 lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
           <h2 className="font-bold text-[20px] text-[#12213b]">
             Học liệu thực hành
           </h2>

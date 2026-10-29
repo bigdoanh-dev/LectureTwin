@@ -171,10 +171,14 @@ class ApiService {
   }
 
   // --- Execution & Multi-Agent Jobs ---
-  async startAnalysis(lectureId: string): Promise<Job> {
+  async prepareGuidedDemo(lectureId: string): Promise<Workspace> {
+    return this.request<Workspace>(`/lectures/${lectureId}/guided-demo`, { method: 'POST', body: JSON.stringify({}) });
+  }
+
+  async startAnalysis(lectureId: string, guided = false): Promise<Job> {
     return this.request<Job>(`/lectures/${lectureId}/analyze`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ guided }),
     });
   }
 

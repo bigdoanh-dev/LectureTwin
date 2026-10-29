@@ -5,7 +5,7 @@ from . import store
 
 
 def summary(lecture):
-    keys = ['id', 'title', 'course_id', 'owner_id', 'status', 'version', 'published_version', 'updated_at', 'objectives', 'total_minutes', 'sample_attached']
+    keys = ['id', 'title', 'course_id', 'owner_id', 'status', 'version', 'published_version', 'updated_at', 'objectives', 'total_minutes', 'sample_attached', 'guided_demo']
     return {**{k: lecture.get(k) for k in keys}, 'concept_count': len(lecture.get('concepts', [])),
         'open_findings': sum(f['status'] == 'pending' for f in lecture.get('findings', [])),
         'analysis_current': lecture.get('analysis_version') == lecture['version']}

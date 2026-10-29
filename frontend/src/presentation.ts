@@ -27,6 +27,7 @@ export function latestAnalysis(workspace: Workspace | null): Job | null {
   return workspace?.jobs.find(job => job.workflow === 'analysis' && job.input?.version === workspace.lecture.version) || null;
 }
 export function analysisControl(job: Job | null) {
+  if (job?.status === 'paused' && job.pause_reason === 'guided_demo') return { action: 'resume', label: guidedNextAction(job).label, message: 'Đã hoàn tất công việc vừa chọn. Demo đang chờ bạn xem kết quả và bấm chạy bước tiếp theo.' } as const;
   switch (job?.status) {
     case 'needs_review': return { action: 'review', label: 'Duyệt kết quả phân tích', message: 'Đã đọc học liệu và tạo đề xuất. Hệ thống đang chờ giảng viên kiểm tra nguồn, không bị treo. Duyệt kết quả để hoàn tất bước phân tích.' } as const;
     case 'paused': return { action: 'resume', label: 'Tiếp tục phân tích', message: 'Lượt phân tích đang tạm dừng. Bấm Tiếp tục phân tích để chạy tiếp từ các bước đã lưu.' } as const;
@@ -35,6 +36,14 @@ export function analysisControl(job: Job | null) {
     case 'completed': return { action: 'start', label: 'Phân tích lại', message: 'Đã hoàn tất phân tích. Để thử phân bổ lại thời lượng, mở Thử thay đổi bài học; kết quả mô phỏng được tính riêng.' } as const;
     default: return { action: 'start', label: 'Bắt đầu phân tích', message: 'Phân tích tạo đề xuất có dẫn nguồn từ học liệu. Thử thay đổi bài học là bước riêng để so sánh phân bổ thời lượng.' } as const;
   }
+}
+export function guidedNextAction(job: Job | null) {
+  if (!job) return { label: 'Đọc học liệu' };
+  if (job.status === 'needs_review') return { label: 'Sang bước bạn duyệt' };
+  if (job.status === 'failed') return { label: 'Thử lại bước gặp lỗi' };
+  if (job.status === 'paused' && job.checkpoint === 'perception') return { label: 'Tiếp theo: Tìm ý chính' };
+  if (job.status === 'paused' && job.checkpoint === 'knowledge') return { label: 'Tiếp theo: Đối chiếu nguồn' };
+  return { label: 'Tiếp tục xử lý' };
 }
 export function analysisProgress(job: Job | null) {
   const agents = job?.agents || [];

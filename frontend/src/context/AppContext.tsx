@@ -61,6 +61,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const preferredLectureRef = useRef('');
   const jobRef = useRef<Job | null>(null);
   const roleRef = useRef<Role>('teacher');
+  const userIdRef = useRef('');
   const isCurrent = useCallback((value: number) => mounted.current && generation.current === value, []);
   const setActiveJob = useCallback((job: Job | null) => {
     if (job && job.lecture_id !== lectureRef.current) return;
@@ -84,17 +85,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loadSession = useCallback(async (session: User, value: number, preferredLectureId?: string) => {
     if (!isCurrent(value)) return;
-    setUser(session); setRole(session.role); roleRef.current = session.role;
+    setUser(session); setRole(session.role); roleRef.current = session.role; userIdRef.current = session.id;
     updateCurrentView(session.role === 'student' ? 'student' : session.role === 'admin' ? 'admin' : 'ai');
     const bs = await api.getBootstrap();
     if (!isCurrent(value)) return;
     setBootstrap(bs);
-    const preferred = bs.lectures.find(l => l.id === preferredLectureId) || (session.role === 'teacher' ? bs.lectures.find(l => l.id === 'lec-bfs-dfs') : undefined);
+    let remembered = '';
+    try { remembered = localStorage.getItem(`lecture_twin_lecture_${session.id}`) || ''; } catch { /* Selection still works without browser storage. */ }
+    const preferred = bs.lectures.find(l => l.id === (preferredLectureId || remembered)) || (session.role === 'teacher' ? bs.lectures.find(l => l.id === 'lec-bfs-dfs') : undefined);
     const id = (preferred || bs.lectures[0])?.id || '';
     lectureRef.current = id; setCurrentLectureId(id);
     if (id) {
       const ws = await api.getWorkspace(id);
-      if (isCurrent(value)) applyWorkspace(ws);
+      if (isCurrent(value)) {
+        applyWorkspace(ws);
+        try { localStorage.setItem(`lecture_twin_lecture_${userIdRef.current}`, id); } catch { /* Optional convenience. */ }
+      }
     }
   }, [applyWorkspace, isCurrent]);
 
@@ -149,7 +155,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     lectureRef.current = id; setCurrentLectureId(id);
     try {
       const ws = await api.getWorkspace(id);
-      if (isCurrent(value)) applyWorkspace(ws);
+      if (isCurrent(value)) {
+        applyWorkspace(ws);
+        try { localStorage.setItem(`lecture_twin_lecture_${userIdRef.current}`, id); } catch { /* Optional convenience. */ }
+      }
     } catch (err) { if (isCurrent(value)) setError(errorText(err)); }
     finally { if (isCurrent(value)) setLoading(false); }
   }, [beginLoad, isCurrent, applyWorkspace]);

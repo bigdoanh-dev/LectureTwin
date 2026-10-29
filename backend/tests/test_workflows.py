@@ -33,6 +33,40 @@ def test_analysis_reuses_current_review_but_never_an_old_version(client):
     assert fresh['input']['version'] == lecture['version']
 
 
+def test_guided_demo_executes_real_tools_one_checkpoint_at_a_time(client):
+    teacher = login(client)
+    source_before = deepcopy(store.get('lectures', 'lec-bfs-dfs'))
+    copied = post(client, '/lectures/lec-bfs-dfs/guided-demo', teacher)
+    lid = copied['lecture']['id']
+    assert lid != 'lec-bfs-dfs' and copied['lecture']['guided_demo']
+    assert copied['concepts'] == [] and copied['findings'] == [] and copied['jobs'] == []
+    job = post(client, f'/lectures/{lid}/analyze', teacher)
+    assert job['status'] == 'paused' and job['checkpoint'] == 'perception'
+    assert [a['agent'] for a in job['agents']] == ['orchestrator', 'perception']
+    assert store.get('lectures', lid)['concepts'] == []
+    assert client.post(f'/api/lectures/{lid}/publish', headers=teacher).status_code == 409
+    job = post(client, f"/jobs/{job['id']}/control", teacher, {'action': 'resume'})
+    assert job['status'] == 'paused' and job['checkpoint'] == 'knowledge'
+    assert [a['agent'] for a in job['agents']] == ['orchestrator', 'perception', 'knowledge']
+    assert store.get('lectures', lid)['concepts'] and not store.get('lectures', lid)['findings']
+    # Results and the checkpoint survive independent workspace reads.
+    reloaded = client.get(f'/api/lectures/{lid}', headers=teacher).json()
+    assert reloaded['jobs'][0]['checkpoint'] == 'knowledge'
+    job = post(client, f"/jobs/{job['id']}/control", teacher, {'action': 'resume'})
+    assert job['status'] == 'needs_review'
+    assert client.post(f"/api/jobs/{job['id']}/control", headers=teacher, json={'action':'resume'}).status_code == 409
+    post(client, f'/lectures/{lid}/review', teacher, {'exclude_unsupported': True, 'note': 'Đã xem nguồn bài thực hành.'})
+    finished = client.get('/api/jobs/' + job['id'], headers=teacher).json()
+    assert finished['status'] == 'completed'
+    post(client, f'/lectures/{lid}/publish', teacher)
+    assert store.get('lectures', 'lec-bfs-dfs') == source_before
+    student_view = client.get(f'/api/lectures/{lid}', headers=login(client, 'student'))
+    assert student_view.status_code == 200
+    assert all(concept['verified'] for concept in student_view.json()['concepts'])
+    assert client.post('/api/lectures/lec-published/guided-demo', headers=login(client, 'student')).status_code == 403
+    assert client.post('/api/lectures/lec-bfs-dfs/guided-demo', headers=login(client, 'admin')).status_code == 403
+
+
 def publish_fixture(client, teacher):
     job = analyzed(client, teacher)
     post(client, '/lectures/lec-bfs-dfs/review', teacher, {'exclude_unsupported': True, 'note': 'Xác nhận nguồn mẫu, loại phần không có nguồn.'})

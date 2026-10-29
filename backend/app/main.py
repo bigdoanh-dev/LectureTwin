@@ -302,11 +302,31 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     return domain.workspace(lecture, user)
 
 
+class AnalysisRequest(BaseModel):
+    guided: bool = False
+
+
 @app.post('/api/lectures/{lid}/analyze')
-def analyze(lid: str, user=Depends(current_user)):
+def analyze(lid: str, body: AnalysisRequest = AnalysisRequest(), user=Depends(current_user)):
     lecture = lecture_access(user, lid, edit=True)
     if not lecture['assets']: raise HTTPException(409, 'Cần video hoặc slide/transcript trước khi phân tích')
-    return workflows.create_job(user, lecture, 'analysis')
+    return workflows.create_job(user, lecture, 'analysis', {'guided': body.guided or bool(lecture.get('guided_demo'))})
+
+
+@app.post('/api/lectures/{lid}/guided-demo')
+def prepare_guided_demo(lid: str, user=Depends(current_user)):
+    source = lecture_access(user, lid, edit=True)
+    if not source['assets']: raise HTTPException(409, 'Hãy thêm học liệu trước khi tạo demo từng bước')
+    lecture = new_lecture(store.uid('lec'), user['id'], source['course_id'], 'Demo từng bước · ' + source['title'].removeprefix('Demo từng bước · '), source['objectives'], source['total_minutes'])
+    for key in ('planned', 'assets', 'transcript', 'slides', 'sample_attached', 'sample_data_revision'):
+        if key in source: lecture[key] = deepcopy(source[key])
+    for asset in lecture['assets']:
+        if asset.get('url', '').startswith(f'/api/lectures/{lid}/'):
+            asset['url'] = asset['url'].replace(f'/api/lectures/{lid}/', f"/api/lectures/{lecture['id']}/", 1)
+    lecture.update(guided_demo=True, guided_demo_source_id=source.get('guided_demo_source_id', lid))
+    domain.snapshot(lecture, 'guided_demo_created', 'Bản thực hành riêng để quan sát từng bước; không thay đổi bài gốc')
+    store.audit(user, 'CREATE_LECTURE', {'guided_demo': True, 'source_lecture_id': lid}, lecture['id'])
+    return domain.workspace(lecture, user)
 
 
 def job_access(jid, user):

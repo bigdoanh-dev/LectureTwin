@@ -226,13 +226,25 @@ def execute(job_id):
         step(job, 'orchestrator', 'dispatch_workflow', lambda _: {'workflow': job['workflow'], 'version': job['input']['version'], 'mode': 'DEMO_FALLBACK'}, 'perception' if job['workflow'] == 'analysis' else 'knowledge')
         if boundary(job_id): return
         if job['workflow'] == 'analysis':
+            completed_before = {a['agent'] for a in job['agents'] if a['status'] == 'completed'}
+            def guided_checkpoint(agent_name):
+                if not job['input'].get('guided') or agent_name in completed_before:
+                    return False
+                current = store.get('jobs', job_id)
+                if current['status'] != 'running':
+                    return True
+                current.update(status='paused', checkpoint=agent_name, pause_reason='guided_demo')
+                save_job(current)
+                return True
             result = step(job, 'perception', 'probe_video', lambda a: perceive(lecture, a), 'knowledge')
             if boundary(job_id): return
             if result:
                 lecture['media_report'] = result['result']
                 store.put('lectures', lecture)
+            if guided_checkpoint('perception'): return
             step(job, 'knowledge', 'extract_concepts', lambda _: extract_knowledge(lecture), 'verification')
             if boundary(job_id): return
+            if guided_checkpoint('knowledge'): return
             step(job, 'verification', 'validate_evidence', lambda _: verify_lecture(lecture), 'teacher_review')
             if boundary(job_id): return
             current = store.get('jobs', job_id)

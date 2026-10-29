@@ -27,6 +27,7 @@ export interface LectureSummary {
   objectives: string[];
   total_minutes: number;
   sample_attached: boolean;
+  guided_demo?: boolean;
   analysis_current?: boolean;
   concept_count: number;
   open_findings: number;
@@ -131,6 +132,8 @@ export interface Job {
   result?: any;
   error?: string;
   agents: AgentRun[];
+  checkpoint?: 'perception' | 'knowledge';
+  pause_reason?: string;
 }
 
 export interface PlannedSegment {

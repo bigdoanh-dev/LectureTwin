@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress } from '../src/presentation.ts';
+import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -14,6 +14,15 @@ function ready() {
   w.jobs = [{id:'actual-job',workflow:'analysis',input:{version:2},status:'completed'}];
   return w;
 }
+test('Guided controls advance only to the next stored checkpoint', () => {
+  assert.equal(guidedNextAction(null).label, 'Đọc học liệu');
+  assert.match(guidedNextAction({status:'paused',checkpoint:'perception'}).label,/Tìm ý chính/);
+  assert.match(guidedNextAction({status:'paused',checkpoint:'knowledge'}).label,/Đối chiếu nguồn/);
+  assert.equal(guidedNextAction({status:'needs_review'}).label, 'Sang bước bạn duyệt');
+  const control=analysisControl({status:'paused',pause_reason:'guided_demo',checkpoint:'knowledge'});
+  assert.equal(control.action,'resume');
+  assert.match(control.message,/chờ bạn xem kết quả/);
+});
 test('Step progress uses actual tool completion and never treats review waiting as teacher approval', () => {
   assert.deepEqual(analysisProgress(null).map(s=>s.status),['idle','idle','idle','idle']);
   const job={status:'running',agents:[{agent:'perception',status:'running'}]};

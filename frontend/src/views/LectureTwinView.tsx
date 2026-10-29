@@ -10,6 +10,7 @@ import {
 import { useApp } from '../context/AppContext';
 
 const HISTORY_COPY: Record<string, { title: string; summary: string }> = {
+  guided_demo_created: { title: 'Tạo bài thực hành từng bước', summary: 'Đã sao chép học liệu sang bản thực hành riêng để quan sát xử lý; giữ nguyên bài gốc.' },
   created: { title: 'Tạo bài giảng', summary: 'Giảng viên đã đặt mục tiêu và tạo bản nháp.' },
   sample_attached: { title: 'Thêm học liệu mẫu', summary: 'Đã thêm bộ học liệu soạn sẵn; đây không phải nội dung tự nhận dạng từ video.' },
   asset_uploaded: { title: 'Tải học liệu lên', summary: 'Đã thêm học liệu mới; cần phân tích lại để tạo gợi ý từ nguồn này.' },
