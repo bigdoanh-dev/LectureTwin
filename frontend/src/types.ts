@@ -54,6 +54,7 @@ export interface SystemMetrics {
 }
 
 export interface BootstrapData {
+  upload_limit_mb?: number;
   user: User;
   mode: 'DEMO_FALLBACK';
   provider_note: string;

@@ -188,6 +188,45 @@ def test_upload_invalid_and_new_video_cannot_inherit_sample_annotations(client):
     assert any(f['id'] == 'finding-provider' for f in store.get('lectures','lec-bfs-dfs')['findings'])
 
 
+def test_uploaded_transcript_replaces_sample_and_runs_to_human_review(client):
+    teacher = login(client)
+    before = deepcopy(store.get('lectures', 'lec-bfs-dfs'))
+    bad = client.post('/api/lectures/lec-bfs-dfs/assets', headers=teacher, data={'kind':'transcript'}, files={'file':('invalid.vtt', b'not a timed caption', 'text/vtt')})
+    assert bad.status_code == 422
+    assert store.get('lectures', 'lec-bfs-dfs') == before
+    captions = 'WEBVTT\n\n00:00.000 --> 00:08.000\nBFS duyệt đồ thị theo từng lớp bằng hàng đợi FIFO.\n\n00:08.000 --> 00:16.000\nBFS đánh dấu đỉnh đã thăm để tránh lặp.\n'
+    response = client.post('/api/lectures/lec-bfs-dfs/assets', headers=teacher, data={'kind':'transcript'}, files={'file':('my-lecture.vtt', captions.encode(), 'text/vtt')})
+    assert response.status_code == 200, response.text
+    uploaded = response.json()
+    assert not uploaded['lecture']['sample_attached'] and not uploaded['lecture']['guided_demo']
+    assert len(uploaded['assets']) == 1 and uploaded['assets'][0]['name'] == 'my-lecture.vtt'
+    assert uploaded['slides'] == []
+    assert all(row['source_type'] == 'manual_uploaded_transcript' for row in uploaded['transcript'])
+    job = post(client, '/lectures/lec-bfs-dfs/analyze', teacher)
+    assert job['status'] == 'needs_review'  # No demonstration checkpoints.
+    lecture = store.get('lectures', 'lec-bfs-dfs')
+    assert 'bfs' in {concept['id'] for concept in lecture['concepts']}
+    assert 'dfs' not in {concept['id'] for concept in lecture['concepts']}
+    assert not any(finding['id'] == 'finding-extension' for finding in lecture['findings'])
+    assert all(evidence['source_type'] == 'manual_uploaded_transcript' for evidence in lecture['evidence'])
+    assert all(evidence['time_reference'] == 'transcript_only' for evidence in lecture['evidence'])
+    assert client.post('/api/lectures/lec-bfs-dfs/publish', headers=teacher).status_code == 409
+    post(client, '/lectures/lec-bfs-dfs/review', teacher, {'exclude_unsupported': True, 'note':'Đã kiểm tra đúng phụ đề vừa tải.'})
+    post(client, '/lectures/lec-bfs-dfs/publish', teacher)
+
+
+def test_unrecognized_uploaded_topic_never_inherits_sample_findings(client):
+    teacher = login(client)
+    captions = 'WEBVTT\n\n00:00.000 --> 00:05.000\nBài học giới thiệu quá trình quang hợp ở thực vật.\n'
+    response = client.post('/api/lectures/lec-bfs-dfs/assets', headers=teacher, data={'kind':'transcript'}, files={'file':('biology.vtt', captions.encode(), 'text/vtt')})
+    assert response.status_code == 200
+    job = post(client, '/lectures/lec-bfs-dfs/analyze', teacher)
+    assert job['status'] == 'needs_review'
+    lecture = store.get('lectures','lec-bfs-dfs')
+    assert lecture['concepts'] == [] and lecture['evidence'] == []
+    assert [finding['id'] for finding in lecture['findings']] == ['finding-scope']
+
+
 def test_real_media_metadata_frames_and_http_range(client):
     lecture = store.get('lectures','lec-published')
     source = ORIGINAL_PROBE(lecture)

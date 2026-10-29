@@ -128,7 +128,8 @@ def extract_knowledge(lecture):
                     'source_type': source['source_type'], 'source_url': source_asset['url'] if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
                     'youtube_video_id': source_asset.get('youtube_video_id') if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
                     'source_name': source_asset.get('name') if source_asset and source.get('source_type') == 'youtube_caption_annotation' else None,
-                    'valid': bool(duration and 0 <= source['start'] < source['end'] <= duration + .1), 'verified': False})
+                    'valid': bool(0 <= source['start'] < source['end'] and (not duration or source['end'] <= duration + .1)),
+                    'time_reference': 'video' if duration else 'transcript_only', 'verified': False})
                 citations.append(eid)
         for slide in lecture.get('slides', []):
             if any(word in slide['text'].lower() for word in definition['keywords']):
@@ -153,9 +154,14 @@ def verify_lecture(lecture):
         findings.append({'id': f"finding-{concept['id']}", 'concept_id': concept['id'], 'title': f"{concept['label']}: {'có nguồn để xác nhận' if valid else 'thiếu bằng chứng hợp lệ'}",
             'description': 'Giảng viên cần kiểm tra nội dung và nguồn trước khi xác nhận.', 'severity': 'info' if valid else 'warning',
             'has_evidence': bool(valid), 'source_ids': [e['id'] for e in valid], 'status': 'pending', 'note': ''})
-    findings.append({'id': 'finding-extension', 'concept_id': 'complexity', 'title': 'Nội dung mở rộng: chưa đủ nguồn về độ phức tạp',
-        'description': 'Bộ mẫu chưa cung cấp bằng chứng cho phần này. Không đưa vào nội dung đã xác nhận nếu chưa bổ sung nguồn.',
-        'severity': 'warning', 'has_evidence': False, 'source_ids': [], 'status': 'pending', 'note': ''})
+    if lecture.get('sample_attached'):
+        findings.append({'id': 'finding-extension', 'concept_id': 'complexity', 'title': 'Nội dung mở rộng: chưa đủ nguồn về độ phức tạp',
+            'description': 'Bộ mẫu chưa cung cấp bằng chứng cho phần này. Không đưa vào nội dung đã xác nhận nếu chưa bổ sung nguồn.',
+            'severity': 'warning', 'has_evidence': False, 'source_ids': [], 'status': 'pending', 'note': ''})
+    elif not lecture['concepts'] and (lecture['transcript'] or lecture['slides']):
+        findings.append({'id': 'finding-scope', 'concept_id': None, 'title': 'Chưa tìm được ý chính phù hợp trong tệp tải lên',
+            'description': 'Bộ từ khóa hiện hỗ trợ nội dung duyệt đồ thị BFS/DFS. Cần giảng viên bổ sung nội dung hoặc mở rộng bộ xử lý cho chủ đề này.',
+            'severity': 'warning', 'has_evidence': False, 'source_ids': [], 'status': 'pending', 'note': ''})
     if not lecture['transcript'] and not lecture['slides']:
         findings.append({'id': 'finding-provider', 'concept_id': None, 'title': 'Chưa có ASR/vision hoặc chú giải thủ công',
             'description': 'Chỉ có metadata/keyframe. Hãy cung cấp transcript hoặc slide để phân tích nội dung có nguồn.',

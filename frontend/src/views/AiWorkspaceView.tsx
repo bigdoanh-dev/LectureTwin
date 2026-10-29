@@ -30,7 +30,7 @@ import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { ModalDialog } from '../components/ModalDialog';
-import { GuidedLectureDemo } from '../components/GuidedLectureDemo';
+import { LectureWorkflow } from '../components/LectureWorkflow';
 import { api } from '../api';
 import {
   buildLessonSummary,
@@ -367,6 +367,7 @@ export const AiWorkspaceView: React.FC = () => {
 
   // Honest media caption
   const isSample = Boolean(workspace?.lecture.sample_attached);
+  const hasVideo = Boolean(workspace?.assets.some(asset => asset.kind === 'video'));
   const videoCaption = isSample
     ? `Học liệu thực hành · 18:29 · ${workspace?.transcript.length ?? 0} ghi chú theo mốc`
     : (workspace?.assets.some(a => a.kind === 'video')
@@ -413,17 +414,6 @@ export const AiWorkspaceView: React.FC = () => {
       </div>
 
       {/* Notification Banner */}
-      {!workspace?.lecture.guided_demo && workflow.job && ['needs_review', 'paused', 'failed'].includes(workflow.job.status) && (
-        <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
-          <p className="text-sm font-bold text-[#12213b]">{analysisCTA.action === 'review' ? 'Phân tích đã có kết quả — cần bạn kiểm tra' : analysisCTA.label}</p>
-          <p className="text-sm leading-relaxed text-[#5f708b]">{analysisCTA.message}</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={handleStartAnalysis} disabled={actionLoading} className="min-h-[44px] rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{actionLoading ? 'Đang xử lý…' : analysisCTA.label}</button>
-            <button type="button" onClick={() => setCurrentView('simulation')} className="min-h-[44px] rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-[#2959ea]">Thử thay đổi bài học</button>
-          </div>
-          <p className="text-xs text-[#5f708b]">Phân tích tạo đề xuất có dẫn nguồn. Mô phỏng tính thử cách phân bổ thời lượng và không tự thay đổi bài đang dạy.</p>
-        </section>
-      )}
       {actionMessage && (
         <div className="bg-blue-50 border border-blue-200 text-[#12213b] text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center justify-between">
           <span>{actionMessage}</span>
@@ -437,18 +427,18 @@ export const AiWorkspaceView: React.FC = () => {
         </div>
       )}
 
-      <GuidedLectureDemo key={currentLectureId} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
+      <LectureWorkflow key={currentLectureId} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
 
       {/* 3. Main Workspace Grid: Left 43% (Bài giảng gốc) vs Right 57% (Đề xuất từ học liệu) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT 43% (~5 cols out of 12) - MATCHING TEACHER CONCEPT PNG */}
         <div id="lecture-source-panel" className="scroll-mt-28 lg:col-span-5 bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3.5">
           <h2 className="font-bold text-[20px] text-[#12213b]">
-            Học liệu thực hành
+            {isSample ? 'Học liệu thực hành' : 'Học liệu đã tải lên'}
           </h2>
 
           {/* Embedded Native Video Player (NO nested card wrapper) */}
-          <VideoPlayer
+          {hasVideo ? <VideoPlayer
             lectureId={currentLectureId}
             variant="embedded"
             seekTarget={videoSeekTarget}
@@ -456,7 +446,12 @@ export const AiWorkspaceView: React.FC = () => {
             sampleAttached={workspace?.lecture.sample_attached}
             selectedEvidence={selectedEvidence}
             defaultEvidence={defaultEvidence}
-          />
+          /> : <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="flex items-center gap-2 text-sm font-bold text-[#12213b]"><FileText className="h-4 w-4 text-blue-600" />Nội dung tệp đã tải</p>
+            {workspace?.assets.map(asset => <p key={asset.id} className="break-words text-xs font-semibold text-slate-500">{asset.name}</p>)}
+            {workspace?.slides.length ? workspace.slides.slice(0, 2).map(slide => <div key={slide.page} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">Trang {slide.page}</p>{slide.text || 'Trang này chưa có văn bản trích xuất được.'}</div>) : workspace?.transcript.slice(0, 2).map(note => <div key={note.id} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{formatTimestamp(note.start)} – {formatTimestamp(note.end)}</p>{note.text}</div>)}
+            {!workspace?.assets.length && <p className="text-sm text-slate-500">Chọn tệp ở bước 1 để bắt đầu.</p>}
+          </div>}
 
           {/* Video Caption */}
           <div className="text-xs text-[#5f708b] font-medium">
@@ -479,7 +474,7 @@ export const AiWorkspaceView: React.FC = () => {
                 <div className="text-xs text-[#5f708b] font-medium pt-0.5">
                   {formatEvidenceLabel(currentEvidence)} · {isSample
                     ? 'Diễn giải thủ công từ phụ đề tự động tiếng Anh; chưa chạy nhận dạng giọng nói hoặc hình ảnh'
-                    : (currentEvidence.kind === 'slide' ? 'Nội dung trang slide đã chuẩn bị' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
+                    : (currentEvidence.kind === 'slide' ? 'Nội dung trích từ tệp trình chiếu đã tải lên' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
                 </div>
               </>
             ) : (
@@ -497,7 +492,7 @@ export const AiWorkspaceView: React.FC = () => {
             <span>
               {isSample
                 ? 'Học liệu thực hành gồm video và ghi chú theo mốc thời gian.'
-                : 'Video và tài liệu bài giảng đã tải lên.'}
+                : hasVideo ? 'Video và tài liệu bài giảng đã tải lên.' : 'Nội dung được đọc từ tài liệu hoặc phụ đề bạn đã tải lên.'}
             </span>
           </div>
         </div>
@@ -1201,7 +1196,7 @@ export const AiWorkspaceView: React.FC = () => {
           className="text-[#5f708b] hover:text-[#2959ea] flex items-center gap-1.5 cursor-pointer text-left sm:text-right focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-md px-1 py-0.5"
         >
           <Info className="w-4 h-4 shrink-0 text-[#5f708b]" />
-          <span>Chế độ minh họa: học liệu mẫu và xử lý bằng luật, chưa gọi mô hình AI bên ngoài. (AI được dùng ở đâu?)</span>
+          <span>{isSample ? 'Chế độ minh họa: học liệu mẫu và xử lý bằng luật, chưa gọi mô hình AI bên ngoài.' : 'Chế độ minh họa: xử lý văn bản trong tệp đã tải lên bằng luật, chưa gọi mô hình AI bên ngoài.'} (AI được dùng ở đâu?)</span>
         </button>
       </div>
 

@@ -1,6 +1,13 @@
 import type { ConceptNode, Evidence, Job, Workspace } from './types';
 
 /** These selectors describe real workspace data; they never generate new claims. */
+export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' | null {
+  const extension = name.split('.').pop()?.toLowerCase();
+  if (extension === 'mp4') return 'video';
+  if (extension === 'pdf' || extension === 'pptx') return 'slides';
+  if (extension === 'vtt' || extension === 'json') return 'transcript';
+  return null;
+}
 export interface LessonSummaryRow {
   id: string;
   title: string;

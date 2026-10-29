@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction } from '../src/presentation.ts';
+import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction, uploadFileKind } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -14,6 +14,12 @@ function ready() {
   w.jobs = [{id:'actual-job',workflow:'analysis',input:{version:2},status:'completed'}];
   return w;
 }
+test('Upload flow identifies supported files without treating arbitrary text as timed captions', () => {
+  assert.equal(uploadFileKind('lecture.MP4'), 'video');
+  for (const name of ['notes.pdf','slides.PPTX']) assert.equal(uploadFileKind(name),'slides');
+  for (const name of ['subtitles.vtt','segments.json']) assert.equal(uploadFileKind(name),'transcript');
+  for (const name of ['essay.txt','program.exe','archive.zip']) assert.equal(uploadFileKind(name),null);
+});
 test('Guided controls advance only to the next stored checkpoint', () => {
   assert.equal(guidedNextAction(null).label, 'Đọc học liệu');
   assert.match(guidedNextAction({status:'paused',checkpoint:'perception'}).label,/Tìm ý chính/);
