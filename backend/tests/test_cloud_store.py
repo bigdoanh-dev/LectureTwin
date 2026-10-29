@@ -65,3 +65,15 @@ def test_cloud_jobs_finish_inside_request_instead_of_detached_thread(monkeypatch
     monkeypatch.setattr(workflows.POOL, 'submit', lambda *args: pytest.fail('Cloud task escaped request lifecycle'))
     workflows.schedule('job-123')
     assert calls == ['job-123']
+
+
+def test_missing_private_storage_reports_setup_required_without_ephemeral_fallback(monkeypatch):
+    from app.main import app
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(store, 'CLOUD', True)
+    monkeypatch.delenv('BLOB_READ_WRITE_TOKEN', raising=False)
+    monkeypatch.delenv('BLOB_STORE_ID', raising=False)
+    with TestClient(app) as client:
+        health = client.get('/api/health')
+        assert health.status_code == 503 and health.json()['status'] == 'setup_required'
+        assert client.post('/api/auth/demo-login', json={'role': 'teacher'}).status_code == 503

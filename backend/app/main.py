@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Response, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from . import store, domain, workflows
 from .auth import current_user, require_role, lecture_access, public_user, password_valid, password_hash, issue, DEMO_MODE
@@ -61,6 +61,10 @@ def migrate_seeded_youtube_samples():
 
 @asynccontextmanager
 async def lifespan(app):
+    app.state.storage_ready = not store.CLOUD or bool(os.environ.get('BLOB_READ_WRITE_TOKEN') or os.environ.get('BLOB_STORE_ID'))
+    if not app.state.storage_ready:
+        yield
+        return
     store.initialize()
     seed()
     migrate_seeded_youtube_samples()
@@ -88,6 +92,8 @@ LOGIN_ATTEMPTS = {}
 
 @app.middleware('http')
 async def origin_guard(request, call_next):
+    if not getattr(app.state, 'storage_ready', True) and request.url.path.startswith('/api/'):
+        return JSONResponse(status_code=503, content={'status': 'setup_required', 'detail': 'Bản online đang chờ kết nối kho dữ liệu Private. Vui lòng quay lại sau khi quản trị viên hoàn tất cấu hình.'}, headers={'Cache-Control': 'no-store'})
     origin = request.headers.get('origin')
     same_origin = origin and urlsplit(origin).netloc == request.headers.get('host')
     if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin and not same_origin and origin not in ('http://127.0.0.1:5175', 'http://localhost:5175', 'http://127.0.0.1:8001'):
