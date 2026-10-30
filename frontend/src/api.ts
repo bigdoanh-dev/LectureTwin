@@ -208,6 +208,10 @@ class ApiService {
     return this.request<Workspace>(`/lectures/${lid}/concepts/${cid}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
+  async saveObjectiveMapping(lid: string, oid: string, data: {version: number; concept_ids: string[]; expected_concept_ids: string[]}): Promise<Workspace> {
+    return this.request<Workspace>(`/lectures/${lid}/objectives/${oid}/mapping`, {method: 'PUT', body: JSON.stringify(data)});
+  }
+
   async controlJob(jobId: string, action: 'pause' | 'resume' | 'cancel' | 'retry'): Promise<Job> {
     return this.request<Job>(`/jobs/${jobId}/control`, {
       method: 'POST',
@@ -297,7 +301,9 @@ class ApiService {
   async runScenario(lectureId: string, data: {
     title?: string;
     request: string;
-    add_practice_minutes: number;
+    add_practice_minutes?: number;
+    add_minutes?: number;
+    target_segment_id?: string;
     total_limit?: number;
   }): Promise<Job> {
     return this.request<Job>(`/lectures/${lectureId}/scenarios`, {

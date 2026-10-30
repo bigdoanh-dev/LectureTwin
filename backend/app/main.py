@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Response, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
-from . import store, domain, workflows
+from . import store, domain, workflows, research
 from .auth import current_user, require_role, lecture_access, public_user, password_valid, password_hash, issue, DEMO_MODE
 from .fixtures import seed, sample_sources, new_lecture, AGENTS, PROVIDER_NOTE, SAMPLE_DATA_REVISION
 
@@ -29,9 +29,10 @@ def migrate_seeded_youtube_samples():
         has_youtube_notes = bool(lecture.get('transcript')) and all(
             row.get('source_type') == 'youtube_caption_annotation' for row in lecture.get('transcript', [])
         )
-        sample_revision_matches = lecture.get('sample_data_revision') == SAMPLE_DATA_REVISION
         should_reopen_for_review = lecture_id != 'lec-published' and lecture.get('status') == 'published' and lecture.get('published_version') != lecture.get('version')
-        if has_youtube_reference and has_youtube_notes and sample_revision_matches and not should_reopen_for_review:
+        # New fixture revisions apply to explicitly attached/new sources. Never
+        # erase a teacher's saved decisions or publication just to update notes.
+        if has_youtube_reference and has_youtube_notes and not should_reopen_for_review:
             continue
 
         lecture['version'] = int(lecture.get('version', 1)) + 1
@@ -573,14 +574,16 @@ def submit(aid: str, body: Submission, user=Depends(current_user)):
 @app.get('/api/lectures/{lid}/analytics')
 def get_analytics(lid: str, user=Depends(current_user)):
     require_role(user, 'teacher', 'student')
-    lecture_access(user, lid)
-    return domain.analytics(lid, user)
+    lecture = lecture_access(user, lid)
+    return domain.analytics(lid, user, lecture['published_version'] if user['role'] == 'student' else lecture['version'])
 
 
 class ScenarioRequest(BaseModel):
     title: str = Field(default='Thử phân bổ thời lượng', max_length=160)
     request: str = Field(min_length=3, max_length=1200)
     add_practice_minutes: int = Field(default=10, ge=1, le=60)
+    add_minutes: int | None = Field(default=None, ge=1, le=60)
+    target_segment_id: str | None = Field(default=None, max_length=120)
     total_limit: int = Field(default=50, ge=15, le=180)
 
 
@@ -588,7 +591,39 @@ class ScenarioRequest(BaseModel):
 def scenario(lid: str, body: ScenarioRequest, user=Depends(current_user)):
     lecture = lecture_access(user, lid, edit=True)
     domain.ensure_planning_ready(lecture)
+    if body.target_segment_id and body.target_segment_id not in {s['id'] for s in lecture['planned']['segments']}:
+        raise HTTPException(422, 'Nội dung muốn điều chỉnh chưa có trong kế hoạch đã duyệt')
     return workflows.create_job(user, lecture, 'planning', body.model_dump())
+
+
+class ObjectiveMapping(BaseModel):
+    version: int = Field(ge=1)
+    concept_ids: list[str] = Field(max_length=20)
+    expected_concept_ids: list[str] = Field(max_length=20)
+
+
+@app.put('/api/lectures/{lid}/objectives/{oid}/mapping')
+def map_objective(lid: str, oid: str, body: ObjectiveMapping, user=Depends(current_user)):
+    with store.LOCK:
+        lecture = lecture_access(user, lid, edit=True)
+        domain.ensure_reviewed_source(lecture)
+        if body.version != lecture['version']:
+            raise HTTPException(409, 'Nguồn đã đổi phiên bản; mở lại bài giảng trước khi xác nhận CLO')
+        objective = next((o for o in research.view(lecture, user)['objectives'] if o['id'] == oid), None)
+        if not objective: raise HTTPException(404, 'Không tìm thấy chuẩn đầu ra')
+        catalog = {c['id'] for c in research.CATALOG}
+        supported = {c['id'] for c in lecture['concepts'] if c.get('verified') and any(
+            e['concept_id'] == c['id'] and e.get('valid') and e.get('verified') for e in lecture['evidence'])}
+        if not set(body.expected_concept_ids) <= catalog or not set(body.concept_ids) <= supported or not set(body.concept_ids) <= set(body.expected_concept_ids):
+            raise HTTPException(422, 'Chỉ xác nhận kiến thức có nguồn đã duyệt và nằm trong nội dung dự kiến của CLO')
+        lecture.setdefault('objective_mappings', {})[oid] = {'version': lecture['version'], 'title': objective['title'],
+            'concept_ids': list(dict.fromkeys(body.concept_ids)), 'expected_concept_ids': list(dict.fromkeys(body.expected_concept_ids)),
+            'reviewed_by': user['id'], 'reviewed_at': store.now()}
+        # A mapping edit stays a draft; a previous published payload remains unchanged.
+        if lecture.get('status') == 'published': lecture['status'] = 'draft_changes'
+        domain.snapshot(lecture, 'clo_mapping_reviewed', f'Giảng viên xác nhận liên kết {oid.upper()} với nguồn phiên bản {lecture["version"]}')
+        store.audit(user, 'REVIEW_CLO_MAPPING', oid, lid)
+        return domain.workspace(lecture, user)
 
 
 @app.post('/api/scenarios/{sid}/create-version')

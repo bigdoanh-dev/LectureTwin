@@ -15,7 +15,7 @@ YOUTUBE_VIDEO_ID = 'pcKY4hjDrxk'
 YOUTUBE_VIDEO_URL = f'https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}'
 YOUTUBE_VIDEO_TITLE = '5.1 Graph Traversals - BFS & DFS - Breadth First Search and Depth First Search'
 YOUTUBE_VIDEO_DURATION = 18 * 60 + 29
-SAMPLE_DATA_REVISION = 'youtube-bfs-dfs-caption-notes-v2'
+SAMPLE_DATA_REVISION = 'youtube-bfs-dfs-caption-notes-v3'
 
 # These are Vietnamese paraphrase notes tied to the timestamps in Abdul Bari's
 # YouTube video. They were prepared from its auto-generated English captions;
@@ -24,11 +24,12 @@ TRANSCRIPT = [
     {'id': 'yt-1', 'start': 0, 'end': 62, 'text': 'Video giới thiệu BFS và DFS như hai cách duyệt đồ thị. Giảng viên phân biệt việc đi tới một đỉnh với việc lần lượt xem các đỉnh kề; cây cũng là một dạng đồ thị.', 'source_type': 'youtube_caption_annotation'},
     {'id': 'yt-2', 'start': 62, 'end': 128, 'text': 'Ví dụ BFS bắt đầu ở đỉnh 1: lần lượt đưa các đỉnh kề 2, 4, 5 vào hàng đợi, rồi mới xét các đỉnh kề của 2. Thứ tự giữa các đỉnh cùng mức có thể thay đổi.', 'source_type': 'youtube_caption_annotation'},
     {'id': 'yt-3', 'start': 128, 'end': 213, 'text': 'Ví dụ DFS bắt đầu ở đỉnh 1 và đi sâu sang đỉnh mới trước. Khi một nhánh hết đỉnh chưa thăm, thuật toán quay lui để tiếp tục nhánh còn lại.', 'source_type': 'youtube_caption_annotation'},
-    {'id': 'yt-4', 'start': 253, 'end': 322, 'text': 'Trên cây nhị phân, BFS tương ứng với duyệt theo từng tầng; DFS trong ví dụ được minh họa như thứ tự tiền tự.', 'source_type': 'youtube_caption_annotation'},
+    {'id': 'yt-3b', 'start': 213, 'end': 249, 'text': 'So sánh hai cách duyệt: BFS khám phá hết đỉnh kề trước khi chuyển lượt; DFS tạm dừng đỉnh đang xét để đi sâu từ đỉnh vừa gặp.', 'source_type': 'youtube_caption_annotation'},
+    {'id': 'yt-4', 'start': 249, 'end': 322, 'text': 'Trên cây nhị phân, BFS tương ứng với duyệt theo từng tầng; DFS trong ví dụ được minh họa như thứ tự tiền tự.', 'source_type': 'youtube_caption_annotation'},
     {'id': 'yt-5', 'start': 322, 'end': 550, 'text': 'Phần BFS dùng hàng đợi: lấy đỉnh đang chờ ra, xem các đỉnh kề chưa thăm, ghi nhận chúng rồi đưa vào hàng đợi. Ví dụ trên đồ thị lớn đánh dấu các đỉnh đã gặp để tránh lặp.', 'source_type': 'youtube_caption_annotation'},
-    {'id': 'yt-6', 'start': 550, 'end': 632, 'text': 'Quy tắc BFS: có thể chọn đỉnh bắt đầu và thứ tự xét các đỉnh kề; nhưng phải xét hết các đỉnh kề của lượt hiện tại trước khi lấy đỉnh tiếp theo từ hàng đợi.', 'source_type': 'youtube_caption_annotation'},
-    {'id': 'yt-7', 'start': 632, 'end': 970, 'text': 'Phần DFS dùng ngăn xếp để nhớ đường quay lại. Khi gặp đỉnh mới, tạm dừng đỉnh hiện tại và đi sâu tiếp; khi không còn đỉnh kề chưa thăm thì quay lui.', 'source_type': 'youtube_caption_annotation'},
-    {'id': 'yt-8', 'start': 970, 'end': YOUTUBE_VIDEO_DURATION, 'text': 'Video kết thúc bằng các thứ tự DFS hợp lệ khác nhau trên cùng đồ thị. Kết quả phụ thuộc vào đỉnh bắt đầu và thứ tự chọn các đỉnh kề.', 'source_type': 'youtube_caption_annotation'},
+    {'id': 'yt-6', 'start': 563, 'end': 730, 'text': 'Quy tắc BFS: có thể chọn đỉnh bắt đầu và thứ tự xét các đỉnh kề; nhưng phải xét hết các đỉnh kề của lượt hiện tại trước khi lấy đỉnh tiếp theo từ hàng đợi. Giảng viên minh họa thêm các thứ tự BFS hợp lệ.', 'source_type': 'youtube_caption_annotation'},
+    {'id': 'yt-7', 'start': 730, 'end': 986, 'text': 'Phần DFS dùng ngăn xếp để nhớ đường quay lại. Khi gặp đỉnh mới, tạm dừng đỉnh hiện tại và đi sâu tiếp; khi không còn đỉnh kề chưa thăm thì quay lui.', 'source_type': 'youtube_caption_annotation'},
+    {'id': 'yt-8', 'start': 986, 'end': YOUTUBE_VIDEO_DURATION, 'text': 'Video kết thúc bằng các thứ tự DFS hợp lệ khác nhau trên cùng đồ thị. Kết quả phụ thuộc vào đỉnh bắt đầu và thứ tự chọn các đỉnh kề.', 'source_type': 'youtube_caption_annotation'},
 ]
 SLIDES = []
 CONCEPTS = [
@@ -38,6 +39,7 @@ CONCEPTS = [
     {'id': 'dfs', 'label': 'DFS', 'description': 'Đi sâu trước khi quay lui.', 'keywords': ['dfs'], 'x': 440, 'y': 170},
     {'id': 'stack', 'label': 'Ngăn xếp / đệ quy', 'description': 'Lưu trạng thái để tiếp tục sau khi quay lui.', 'keywords': ['ngăn xếp', 'đệ quy', 'lifo'], 'x': 440, 'y': 310},
     {'id': 'compare', 'label': 'Thứ tự duyệt', 'description': 'Đối chiếu trên cùng đồ thị và thứ tự danh sách kề.', 'keywords': ['thứ tự', 'phụ thuộc vào đỉnh'], 'x': 260, 'y': 440},
+    {'id': 'complexity', 'label': 'Độ phức tạp thuật toán', 'description': 'Chi phí thời gian hoặc bộ nhớ được nêu trong nguồn; cần giảng viên đối chiếu.', 'keywords': ['độ phức tạp', 'complexity'], 'x': 680, 'y': 170},
 ]
 EDGES = [
     {'id': 'g-b', 'source': 'graph', 'target': 'bfs', 'type': 'prerequisite', 'label': 'nền tảng'},

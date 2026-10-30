@@ -24,6 +24,7 @@ const HISTORY_COPY: Record<string, { title: string; summary: string }> = {
   concept_edited: { title: 'Chỉnh sửa ý chính', summary: 'Ý chính đã được sửa và cần giảng viên duyệt lại.' },
   prepared_publication: { title: 'Chuẩn bị bài mẫu', summary: 'Bài mẫu đã được chuẩn bị để học viên trải nghiệm.' },
   published: { title: 'Xuất bản bài giảng', summary: 'Giảng viên đã xuất bản nội dung hiện tại cho học viên.' },
+  clo_mapping_reviewed: { title: 'Đối chiếu chuẩn đầu ra', summary: 'Giảng viên đã xác nhận liên kết kiến thức với CLO theo nguồn của phiên bản này.' },
 };
 
 export const LectureTwinView: React.FC = () => {
@@ -57,11 +58,17 @@ export const LectureTwinView: React.FC = () => {
     >
       <div>
         <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
-          Tình hình bài giảng
+          Lecture Twin của bài giảng
         </h1>
         <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-          Xem kế hoạch, nội dung đã đối chiếu, kết quả bài làm và các phương án thử. Mỗi con số chỉ phản ánh dữ liệu hiện có của bài học.
+          Mô hình liên kết nội dung, đoạn nguồn, chuẩn đầu ra, bài làm và các phiên bản. Cập nhật khi có học liệu hoặc phản hồi học tập mới.
         </p>
+      </div>
+
+      <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-5 text-sm leading-relaxed text-slate-600">
+        <strong className="text-slate-800">Liên kết chuẩn đầu ra </strong>
+        {workspace?.research?.objectives.filter(o => o.status === 'confirmed').length ?? 0}/{workspace?.research?.objectives.length ?? 0} CLO đã được giảng viên đối chiếu.
+        {' '}Trạng thái này xác nhận liên kết với học liệu, chưa chứng nhận học viên đạt CLO. Khoảng nguồn và kết quả từng kiến thức được xem tại Hiểu bài giảng.
       </div>
 
       {/* 4 States Grid */}

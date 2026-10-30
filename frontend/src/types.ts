@@ -20,7 +20,7 @@ export interface LectureSummary {
   title: string;
   course_id: string;
   owner_id: string;
-  status: 'draft' | 'published';
+  status: 'draft' | 'draft_changes' | 'published';
   version: number;
   published_version: number | null;
   updated_at: string;
@@ -185,6 +185,9 @@ export interface Assessment {
 }
 
 export interface ScenarioComparison {
+  target_segment_id?: string;
+  target_title?: string;
+  added_minutes?: number;
   baseline_total: number;
   scenario_total: number;
   practice_delta: number;
@@ -247,6 +250,7 @@ export interface StudentProgress {
 }
 
 export interface Workspace {
+  research?: LectureResearch;
   capabilities?: { can_generate_assessment: boolean };
   lecture: LectureSummary;
   planned: {
@@ -290,6 +294,38 @@ export interface Workspace {
   assessments: Assessment[];
   scenarios: Scenario[];
   progress: StudentProgress;
+}
+
+export interface ResearchObjective {
+  id: string;
+  title: string;
+  expected_concept_ids: string[];
+  found_concept_ids: string[];
+  missing_concept_ids: string[];
+  confirmed_concept_ids: string[];
+  status: 'unmapped' | 'suggested' | 'confirmed';
+  version: number;
+}
+
+export interface LectureResearch {
+  sample_notes_outdated?: boolean;
+  source_processed: boolean;
+  source_version: number;
+  mode: 'rule_based';
+  objectives: ResearchObjective[];
+  concepts: Array<{
+    concept_id: string;
+    evidence_ids: string[];
+    video_ranges: Array<{start: number; end: number}>;
+    observed_seconds: number;
+    source_status: 'needs_review' | 'reviewed';
+    objective_ids: string[];
+    question_ids: string[];
+    quiz: {correct: number; total: number};
+  }>;
+  signals: Array<{id: string; kind: 'missing_source' | 'quiz_errors' | 'mapping_needed'; title: string; description: string; concept_id?: string; objective_id?: string}>;
+  concept_catalog: Array<{id: string; label: string}>;
+  limitations: string[];
 }
 
 export interface QuizSubmissionResult {

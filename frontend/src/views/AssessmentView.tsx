@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   BarChart2,
@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
-import { QuizSubmissionResult, Assessment } from '../types';
+import { ModalDialog } from '../components/ModalDialog';
+import { QuizSubmissionResult, Assessment, AssessmentQuestion } from '../types';
 import { currentAssessments } from '../presentation';
 
 export const AssessmentView: React.FC = () => {
@@ -22,6 +23,10 @@ export const AssessmentView: React.FC = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [generating, setGenerating] = useState<boolean>(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [editingQuestions, setEditingQuestions] = useState<AssessmentQuestion[] | null>(null);
+  const [editError, setEditError] = useState('');
+  const [savingQuestions, setSavingQuestions] = useState(false);
+  const closeEditor = useCallback(() => { if (!savingQuestions) setEditingQuestions(null); }, [savingQuestions]);
 
   const shouldReduceMotion = useReducedMotion();
   const genAbortRef = useRef<AbortController | null>(null);
@@ -38,6 +43,7 @@ export const AssessmentView: React.FC = () => {
     setSelectedAnswers({});
     setSubmissionResult(null);
     setMsg(null);
+    setEditingQuestions(null);
   }, [currentLectureId, activeAssessment?.id]);
 
   // Abort ongoing generation on unmount (Review line 26)
@@ -112,6 +118,17 @@ export const AssessmentView: React.FC = () => {
     }
   };
 
+  const saveQuestions = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!activeAssessment || !editingQuestions) return;
+    setSavingQuestions(true); setEditError('');
+    try {
+      await api.patchAssessment(activeAssessment.id, {questions: editingQuestions});
+      await refreshWorkspace(); setEditingQuestions(null); setMsg('Đã lưu câu hỏi nháp. Kiểm tra lại nguồn và đáp án trước khi giao bài.');
+    } catch (error: any) { setEditError(error.message); }
+    finally { setSavingQuestions(false); }
+  };
+
   return (
     <motion.div
       initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
@@ -129,6 +146,7 @@ export const AssessmentView: React.FC = () => {
               ? 'Tạo câu hỏi, giao bài và xem số lượt nộp cùng kết quả thực tế của học viên.'
               : 'Làm bài kiểm tra đã được giảng viên giao và xem giải thích sau khi nộp.'}
           </p>
+          <p className="mt-2 text-sm font-semibold text-slate-600">{workspace?.lecture.title}</p>
         </div>
 
         {role === 'teacher' && (
@@ -175,16 +193,16 @@ export const AssessmentView: React.FC = () => {
                   : 'Chưa có kết quả'}
               </strong>
               <span className="mt-1 block text-[11px] leading-snug text-[#5f708b]">
-                Tính từ lượt nộp mới nhất của mỗi học viên cho từng bài kiểm tra.
+                Tính từ lượt nộp mới nhất của mỗi học viên cho từng bài kiểm tra thuộc phiên bản {workspace?.lecture.version}.
               </span>
             </div>
 
             <div className="bg-[#f6f8fc] p-3.5 rounded-xl border border-[#e1e7ef]">
               <span className="text-[#5f708b] block text-xs font-medium">Ý chính có trong câu hỏi</span>
-              <strong className="text-sm sm:text-base text-[#12213b] mt-1 block font-bold truncate">
-                {workspace?.concepts?.length
-                  ? workspace.concepts.slice(0, 2).map(c => c.label).join(', ')
-                  : 'Chưa có ý chính đã duyệt'}
+              <strong className="text-sm sm:text-base text-[#12213b] mt-1 block font-bold break-words">
+                {activeAssessment?.questions.length
+                  ? [...new Set(activeAssessment.questions.map(q => workspace?.concepts.find(c => c.id === q.concept_id)?.label || q.concept_id))].join(', ')
+                  : 'Chưa có câu hỏi'}
               </strong>
             </div>
           </div>
@@ -210,7 +228,7 @@ export const AssessmentView: React.FC = () => {
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 sm:p-6 shadow-2xs space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#e1e7ef] gap-2">
             <div>
-              <span className="text-xs font-mono text-[#5f708b] block">{activeAssessment.id}</span>
+              <span className="text-xs text-[#5f708b] block">Phiên bản {activeAssessment.version} · {activeAssessment.questions.length} câu hỏi</span>
               <h2 className="font-bold text-base sm:text-lg text-[#12213b] mt-0.5">
                 {activeAssessment.title}
               </h2>
@@ -332,14 +350,14 @@ export const AssessmentView: React.FC = () => {
           {/* Footer Actions: Teacher (read-only actions) vs Student (submit actions) */}
           {role === 'teacher' ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 border-t border-[#e1e7ef] gap-3">
-              <button
+              {activeAssessment.status === 'draft' && <button
                 type="button"
-                onClick={() => setCurrentView('ai')}
+                onClick={() => {setEditError(''); setEditingQuestions(structuredClone(activeAssessment.questions));}}
                 className="min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#2959ea] hover:bg-blue-50 border border-blue-200 transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
               >
                 <Edit3 className="w-4 h-4" />
-                <span>Chỉnh sửa câu hỏi trong mục AI hỗ trợ</span>
-              </button>
+                <span>Chỉnh sửa câu hỏi</span>
+              </button>}
 
               {activeAssessment.status !== 'published' && (
                 <button
@@ -379,6 +397,19 @@ export const AssessmentView: React.FC = () => {
           )}
         </div>
       )}
+      <ModalDialog isOpen={editingQuestions !== null} onClose={closeEditor} title="Chỉnh sửa câu hỏi nháp" maxWidth="max-w-2xl">
+        <form onSubmit={saveQuestions} className="space-y-5">
+          <p className="text-sm leading-relaxed text-slate-500">Câu hỏi giữ liên kết với khái niệm và nguồn ban đầu. Giảng viên cần kiểm tra lại nội dung thay đổi trước khi giao bài.</p>
+          {editingQuestions?.map((q, index) => <fieldset key={q.id} className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <legend className="px-1 text-sm font-bold">Câu {index + 1}</legend>
+            <label className="block text-sm">Nội dung câu hỏi<textarea required minLength={3} value={q.text} onChange={e=>setEditingQuestions(questions=>questions!.map((item,i)=>i===index?{...item,text:e.target.value}:item))} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm"/></label>
+            {q.options.map(option=><label key={option.id} className="flex items-center gap-3 text-sm"><input type="radio" required name={`correct-${q.id}`} checked={q.correct_option_id===option.id} onChange={()=>setEditingQuestions(questions=>questions!.map((item,i)=>i===index?{...item,correct_option_id:option.id}:item))} aria-label={`Đặt đáp án ${option.id} cho câu ${index+1}`}/><input required value={option.text} aria-label={`Phương án ${option.id} câu ${index+1}`} onChange={e=>setEditingQuestions(questions=>questions!.map((item,i)=>i===index?{...item,options:item.options.map(o=>o.id===option.id?{...o,text:e.target.value}:o)}:item))} className="min-h-[44px] min-w-0 flex-1 rounded-lg border border-slate-200 px-3"/></label>)}
+            <label className="block text-sm">Giải thích dựa trên nguồn<textarea value={q.explanation || ''} onChange={e=>setEditingQuestions(questions=>questions!.map((item,i)=>i===index?{...item,explanation:e.target.value}:item))} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm"/></label>
+          </fieldset>)}
+          {editError && <p role="alert" className="text-sm text-red-700">{editError}</p>}
+          <button disabled={savingQuestions} className="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{savingQuestions?'Đang lưu…':'Lưu câu hỏi nháp'}</button>
+        </form>
+      </ModalDialog>
     </motion.div>
   );
 };

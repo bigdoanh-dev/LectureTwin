@@ -303,7 +303,7 @@ def test_real_media_metadata_frames_and_http_range(client):
     lecture = store.get('lectures','lec-published')
     source = ORIGINAL_PROBE(lecture)
     assert source['status'] == 'reference_only' and source['duration_seconds'] == 1109
-    assert source['asr'] == source['vision'] == 'not_run' and source['annotation_count'] == 8
+    assert source['asr'] == source['vision'] == 'not_run' and source['annotation_count'] == 9
     local = deepcopy(lecture)
     local['sample_attached'] = False
     local['assets'] = [a for a in local['assets'] if a.get('source_type') != 'youtube_reference']

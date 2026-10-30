@@ -1,333 +1,63 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import {
-  PlayCircle,
-  Sliders,
-  Plus,
-  History,
-  CheckCircle2,
-  AlertTriangle
-} from 'lucide-react';
+import { PlayCircle, Sliders, Plus, History, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
-import { ScenarioComparison } from '../types';
-import { lessonWorkflow, workspaceSections } from '../presentation';
+import type { ScenarioComparison } from '../types';
+import { lessonWorkflow } from '../presentation';
 
-export const SimulationView: React.FC = () => {
-  const { workspace, currentLectureId, refreshWorkspace, role, setCurrentView } = useApp();
-  const totalMinutes = workspace?.lecture.total_minutes ?? workspace?.planned?.total_minutes ?? 0;
-  const savedScenarios = workspace?.scenarios || [];
-  const workflow = lessonWorkflow(workspace);
-  const practiceName = workspace?.planned.segments.find(segment => segment.kind === 'practice')?.title || 'phần thực hành';
-  const ready = workspace?.lecture.sample_attached
-    ? Boolean((workflow.reviewed || workflow.published) && workspace.planned.segments.length)
-    : workspaceSections(workspace).canImprove;
-  const defaultRequest = `Thêm 10 phút cho ${practiceName} nhưng không tăng tổng thời lượng bài giảng`;
-
-  const [requestText, setRequestText] = useState<string>(defaultRequest);
-  const [addPractice, setAddPractice] = useState<number>(10);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [comparison, setComparison] = useState<ScenarioComparison | null>(null);
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const activeScenario = savedScenarios.find(scenario => scenario.id === activeScenarioId);
-  const activeScenarioMatchesCurrentPlan = !activeScenario || activeScenario.base_version === workspace?.lecture.version;
-
-  const shouldReduceMotion = useReducedMotion();
-  const simAbortRef = useRef<AbortController | null>(null);
-
-  // Clear comparison, scenario ID, and messages on lecture change, and abort wait (Review line 26)
-  useEffect(() => {
-    setComparison(null);
-    setActiveScenarioId(null);
-    setMsg(null);
-    setRequestText(defaultRequest);
-    if (simAbortRef.current) {
-      simAbortRef.current.abort();
-      simAbortRef.current = null;
-    }
-    return () => {
-      if (simAbortRef.current) {
-        simAbortRef.current.abort();
-        simAbortRef.current = null;
-      }
-    };
-  }, [currentLectureId, workspace?.lecture.version]);
-
-  const handleRunSimulation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentLectureId || !ready) return;
-    if (simAbortRef.current) {
-      simAbortRef.current.abort();
-    }
-    const abortCtrl = new AbortController();
-    simAbortRef.current = abortCtrl;
-
-    setLoading(true);
-    setMsg(null);
-    try {
-      const initialJob = await api.runScenario(currentLectureId, {
-        title: requestText.trim() || 'Phương án thử bài giảng',
-        request: requestText,
-        add_practice_minutes: addPractice,
-        total_limit: totalMinutes,
-      });
-
-      const scenarioJob = await api.waitForJob(initialJob, abortCtrl.signal);
-
-      if (scenarioJob.status === 'completed' && scenarioJob.result?.comparison) {
-        setComparison(scenarioJob.result.comparison);
-        setActiveScenarioId(scenarioJob.result.scenario_id);
-        setMsg('Đã tính phương án thử. Đây là kết quả xem trước; bài đang dùng chưa thay đổi.');
-      } else {
-        setMsg(scenarioJob.error || 'Mô phỏng kịch bản không thành công.');
-      }
-      await refreshWorkspace();
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      setMsg(err.detail || err.message || 'Lỗi khi chạy mô phỏng kịch bản');
-    } finally {
-      setLoading(false);
-    }
+const button = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50';
+export function SimulationView() {
+  const {workspace,currentLectureId,refreshWorkspace,role,setCurrentView}=useApp();
+  const plan=workspace?.planned; const segments=plan?.segments || []; const total=workspace?.lecture.total_minutes ?? 0;
+  const flow=lessonWorkflow(workspace); const verified=new Set(workspace?.concepts.filter(c=>c.verified).map(c=>c.id));
+  const ready=Boolean((flow.reviewed||flow.published)&&segments.length&&segments.every(s=>(s.concept_ids || [s.concept_id]).every(id=>verified.has(id))));
+  const [target,setTarget]=useState(''); const [minutes,setMinutes]=useState(15); const [note,setNote]=useState('');
+  const [busy,setBusy]=useState(false); const [comparison,setComparison]=useState<ScenarioComparison|null>(null); const [scenarioId,setScenarioId]=useState<string|null>(null); const [message,setMessage]=useState('');
+  const abort=useRef<AbortController|null>(null); const generation=useRef(0); const reduced=useReducedMotion();
+  const defaultTarget=segments.find(s=>(s.concept_ids || [s.concept_id]).includes('complexity'))?.id || segments.find(s=>s.kind==='practice')?.id || segments[0]?.id || '';
+  const targetId=segments.some(s=>s.id===target)?target:defaultTarget; const targetName=segments.find(s=>s.id===targetId)?.title || 'nội dung đã chọn';
+  const saved=workspace?.scenarios || []; const selectedScenario=saved.find(s=>s.id===scenarioId); const stale=Boolean(selectedScenario&&selectedScenario.base_version!==workspace?.lecture.version);
+  const formChanged=Boolean(comparison && ((comparison.target_segment_id || segments.find(s=>s.kind==='practice')?.id)!==targetId || (comparison.added_minutes ?? comparison.practice_delta)!==minutes || (note.trim() && note.trim()!==selectedScenario?.request)));
+  useEffect(()=>{generation.current++;abort.current?.abort();setBusy(false);setComparison(null);setScenarioId(null);setMessage('');setTarget('');setNote('');return()=>{generation.current++;abort.current?.abort();};},[currentLectureId,workspace?.lecture.version]);
+  const run=async(e:React.FormEvent)=>{
+    e.preventDefault();if(!currentLectureId||!ready||!targetId)return;
+    abort.current?.abort();const controller=new AbortController();abort.current=controller;const gen=generation.current;
+    setBusy(true);setMessage('');
+    try{
+      const request=note.trim() || `Dành thêm ${minutes} phút cho ${targetName}, giữ tổng ${total} phút`;
+      const initial=await api.runScenario(currentLectureId,{title:request,request,add_minutes:minutes,target_segment_id:targetId,total_limit:total});
+      const job=await api.waitForJob(initial,controller.signal);if(gen!==generation.current)return;
+      if(job.status!=='completed'||!job.result?.comparison)throw new Error(job.error || 'Chưa tính được phương án. Hãy xem lại nguồn và thử lại.');
+      setComparison(job.result.comparison);setScenarioId(job.result.scenario_id);await refreshWorkspace();
+      if(gen===generation.current)setMessage('Đã lưu kết quả tính thử. Kế hoạch đang phát hành chưa thay đổi.');
+    }catch(e:any){if(e.name!=='AbortError'&&gen===generation.current)setMessage(e.message);}finally{if(gen===generation.current)setBusy(false);}
   };
-
-  const handleCreateVersion = async () => {
-    if (!activeScenarioId) return;
-    setLoading(true);
-    try {
-      const res = await api.createScenarioVersion(activeScenarioId);
-      await refreshWorkspace();
-      const newVer = res?.version ?? ((workspace?.lecture.version ?? 1) + 1);
-      setMsg(`Đã tạo bản nháp phiên bản ${newVer} từ phương án thử. Bản đã xuất bản không thay đổi.`);
-    } catch (err: any) {
-      setMsg(err.detail || 'Lỗi tạo phiên bản mới');
-    } finally {
-      setLoading(false);
-    }
+  const apply=async()=>{
+    if(!scenarioId||!comparison?.feasible||stale||formChanged)return;const gen=generation.current;setBusy(true);setMessage('');
+    try{const result=await api.createScenarioVersion(scenarioId);if(gen!==generation.current)return;await refreshWorkspace();setMessage(`Đã tạo bản nháp phiên bản ${result.version}. Kiểm tra và duyệt lại trước khi phát hành.`);}catch(e:any){if(gen===generation.current)setMessage(e.message);}finally{if(gen===generation.current)setBusy(false);}
   };
-
-  return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
-      className="space-y-6 max-w-[1440px] mx-auto pb-12"
-    >
-      <div>
-        <h1 className="text-[26px] sm:text-[30px] font-bold text-[#12213b] tracking-tight leading-tight">
-          Thử thay đổi kế hoạch bài giảng
-        </h1>
-        <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-          Nhập số phút muốn thay đổi để xem lại phân bổ thời gian. Đây là phương án xem trước; chưa áp dụng vào bài đang dạy.
-        </p>
-      </div>
-
-      {!ready && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Cần duyệt nội dung và có kế hoạch khớp với học liệu hiện tại trước khi tính phương án thử. <button type="button" onClick={() => setCurrentView('ai')} className="min-h-[44px] font-semibold text-blue-700 underline">Quay về bài giảng để kiểm tra</button></div>}
-
-      {savedScenarios.length > 0 && (
-        <section className="bg-white rounded-xl border border-[#e1e7ef] p-5 shadow-2xs space-y-3" aria-labelledby="saved-scenarios-title">
-          <div>
-            <h2 id="saved-scenarios-title" className="font-bold text-sm sm:text-base text-[#12213b] flex items-center gap-2">
-              <History className="w-4 h-4 text-[#2959ea]" />
-              <span>Phương án thử đã lưu ({savedScenarios.length})</span>
-            </h2>
-            <p className="mt-1 text-xs leading-relaxed text-[#5f708b]">
-              Đây là các kết quả tính thử. Chọn một phương án để xem lại; kế hoạch bài học chỉ đổi khi bạn chủ động tạo bản nháp.
-            </p>
-          </div>
-          <div className="space-y-2">
-            {savedScenarios.map(scenario => {
-              const matchesCurrentPlan = scenario.base_version === workspace?.lecture.version;
-              const isActive = scenario.id === activeScenarioId;
-              return (
-                <div key={scenario.id} className={`rounded-xl border p-3 sm:p-4 ${isActive ? 'border-[#2959ea] bg-blue-50/50' : 'border-[#e1e7ef] bg-[#f6f8fc]'}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <h3 className="font-semibold text-sm text-[#12213b]">{scenario.title}</h3>
-                      <p className="text-xs text-[#5f708b]">{scenario.request}</p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5f708b]">
-                        <span>Thực hành: +{scenario.comparison.practice_delta} phút</span>
-                        <span>Tổng thời lượng: {scenario.comparison.scenario_total} phút</span>
-                        <span className="inline-flex items-center gap-1">
-                          {matchesCurrentPlan ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
-                          {matchesCurrentPlan ? 'Khớp kế hoạch hiện tại' : 'Dựa trên bản cũ; hãy tính lại trước khi lưu'}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setComparison(scenario.comparison);
-                        setActiveScenarioId(scenario.id);
-                        setRequestText(scenario.request);
-                        setAddPractice(scenario.comparison.practice_delta);
-                      }}
-                      className="min-h-[40px] shrink-0 px-3 py-2 rounded-lg border border-[#cbd8f4] bg-white text-[#2959ea] hover:bg-blue-50 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2959ea]"
-                    >
-                      {isActive ? 'Đang xem' : 'Xem kết quả thử'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {msg && (
-        <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs sm:text-sm text-[#12213b] flex items-center justify-between">
-          <span>{msg}</span>
-          <button onClick={() => setMsg(null)} className="text-[#2959ea] font-bold p-1">✕</button>
-        </div>
-      )}
-
-      {/* Input Form */}
-      <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 sm:p-6 shadow-2xs space-y-4">
-        <h2 className="font-bold text-sm sm:text-base text-[#12213b] flex items-center gap-2">
-          <Sliders className="w-4 h-4 text-[#2959ea]" />
-          <span>Thử một thay đổi</span>
-        </h2>
-
-        <form onSubmit={handleRunSimulation} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-[#12213b] mb-1.5">
-              Ghi chú cho phương án thử:
-            </label>
-            <input
-              type="text"
-              value={requestText}
-              onChange={(e) => setRequestText(e.target.value)}
-              aria-describedby="scenario-note-help"
-              className="w-full bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea]"
-              required
-            />
-            <p id="scenario-note-help" className="mt-1.5 text-[11px] leading-snug text-[#5f708b]">
-              Ghi chú giúp bạn nhận ra phương án. Phép tính bên dưới dựa trên số phút, không tự diễn giải nội dung ghi chú.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-[#12213b] mb-1">
-                Số phút thực hành muốn thêm (5–25 phút):
-              </label>
-              <input
-                type="number"
-                min={5}
-                max={25}
-                value={addPractice}
-                onChange={(e) => setAddPractice(Number(e.target.value))}
-                aria-label="Số phút thực hành muốn thêm, từ 5 đến 25 phút"
-                className="w-full bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-[#12213b] mb-1">
-                Tổng thời lượng đang đặt:
-              </label>
-              <input
-                type="text"
-                value={totalMinutes > 0 ? `${totalMinutes} phút` : 'Chưa có dữ liệu'}
-                readOnly
-                className="w-full bg-slate-100 border border-[#e1e7ef] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#5f708b] cursor-not-allowed"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end pt-2 border-t border-[#e1e7ef]">
-            <button
-              type="submit"
-              disabled={loading || !ready || !activeScenarioMatchesCurrentPlan || totalMinutes <= 0}
-              className="min-h-[44px] px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#2959ea] hover:bg-blue-700 disabled:opacity-50 shadow-xs transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
-            >
-              <PlayCircle className="w-4 h-4" />
-              <span>{loading ? 'Đang tính phương án thử...' : 'Tính phương án thử'}</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Comparison Results */}
-      {comparison && (
-        <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 sm:p-6 shadow-2xs space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#e1e7ef]">
-            <div>
-              <span className="text-xs font-bold text-[#5f708b] uppercase tracking-wider block">
-                KẾT QUẢ TÍNH THỬ
-              </span>
-              <h3 className="font-bold text-base text-[#12213b] mt-0.5">
-                Phương án: {requestText} (+{comparison.practice_delta} phút)
-              </h3>
-            </div>
-
-            <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-              comparison.feasible
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                : 'bg-rose-50 text-rose-800 border border-rose-200'
-            }`}>
-              {comparison.feasible ? `✓ Trong giới hạn ${totalMinutes} phút` : '⚠ Vượt quá thời lượng cho phép'}
-            </span>
-          </div>
-
-          {/* Assumptions */}
-          <div className="bg-[#f6f8fc] rounded-xl p-3.5 text-xs space-y-1.5 border border-[#e1e7ef]">
-              <span className="font-bold text-[#12213b] block">Cách tính và các giới hạn:</span>
-            <ul className="list-disc pl-4 space-y-1 text-[#5f708b]">
-              {comparison.assumptions.map((as, i) => (
-                <li key={i}>{as}</li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Segments side-by-side comparison */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            {/* Current lesson plan */}
-            <div className="border border-[#e1e7ef] rounded-xl p-3.5 space-y-2 bg-[#f6f8fc]">
-              <span className="font-bold text-[#12213b] block">Kế hoạch hiện tại · {totalMinutes} phút</span>
-              <div className="space-y-1.5">
-                {comparison.baseline_segments.map(s => (
-                  <div key={s.id} className="flex justify-between bg-white p-2 rounded-lg border border-[#e1e7ef]">
-                    <span>{s.title}</span>
-                    <strong className="text-[#12213b]">{s.minutes}p</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Trial version */}
-            <div className="border border-blue-200 bg-blue-50/30 rounded-xl p-3.5 space-y-2">
-              <span className="font-bold text-[#2959ea] block">Phương án thử · {totalMinutes} phút</span>
-              <div className="space-y-1.5">
-                {comparison.scenario_segments.map(s => (
-                  <div key={s.id} className="flex justify-between bg-white p-2 rounded-lg border border-blue-100">
-                    <span className="font-medium text-[#12213b]">{s.title}</span>
-                    <strong className="text-[#2959ea]">{s.minutes}p</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Create New Draft Version */}
-          {role === 'teacher' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 border-t border-[#e1e7ef] gap-3">
-              <span className="text-xs text-[#5f708b]">
-                Tạo bản nháp mới từ phương án này? Bản đang dùng sẽ không đổi.
-              </span>
-              <button
-                type="button"
-                onClick={handleCreateVersion}
-                disabled={loading}
-                className="min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#2959ea] hover:bg-blue-700 shadow-2xs transition-colors flex items-center space-x-1.5 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tạo bản nháp phiên bản {(workspace?.lecture.version ?? 1) + 1}</span>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </motion.div>
-  );
-};
+  const complexityMissing=!workspace?.concepts.some(c=>c.id==='complexity')&&workspace?.findings.some(f=>f.concept_id==='complexity'&&!f.has_evidence);
+  return <motion.div initial={reduced?false:{opacity:0,y:4}} animate={{opacity:1,y:0}} className="space-y-6 pb-10">
+    <div><p className="mb-2 text-xs font-bold uppercase tracking-widest text-blue-600">Simulation Studio</p><h1 className="text-2xl font-bold sm:text-3xl">Điều chỉnh thời lượng bài giảng</h1><p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">Dành thêm thời gian cho một nội dung, xem phần nào cần rút ngắn và kiểm tra các ràng buộc trước khi tạo bản nháp mới.</p><p className="mt-3 text-sm font-semibold text-slate-600">{workspace?.lecture.title} · Phiên bản {workspace?.lecture.version}</p></div>
+    {!ready&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Cần phân tích, duyệt nội dung và có kế hoạch khớp nguồn hiện tại. <button className={`${button} text-blue-700`} onClick={()=>setCurrentView('ai')}>Mở bài giảng để kiểm tra<ArrowRight className="h-4 w-4"/></button></div>}
+    {complexityMissing&&<p className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-500">Học liệu hiện tại chưa có dẫn chứng cho độ phức tạp thuật toán. Muốn điều chỉnh chủ đề này, hãy bổ sung nguồn và duyệt nội dung trước. Các lựa chọn dưới đây lấy từ kế hoạch đang có.</p>}
+    {message&&<p role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">{message}</p>}
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+      <form onSubmit={run} className="min-w-0 space-y-5 rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-5 sm:p-6"><h2 className="flex items-center gap-2 text-lg font-bold"><Sliders className="h-5 w-5 text-blue-600"/>Thử một thay đổi</h2>
+        <div><label htmlFor="scenario-target" className="mb-2 block text-sm font-semibold">Nội dung muốn dành thêm thời gian</label><select id="scenario-target" value={targetId} onChange={e=>setTarget(e.target.value)} disabled={!segments.length||busy} className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">{!segments.length&&<option value="">Chưa có kế hoạch đã duyệt</option>}{segments.map(s=><option key={s.id} value={s.id}>{s.title} · {s.minutes} phút</option>)}</select></div>
+        <div className="grid grid-cols-2 gap-4"><div><label htmlFor="extra-minutes" className="mb-2 block text-sm font-semibold">Số phút muốn thêm</label><input id="extra-minutes" type="number" min={1} max={60} required value={minutes} onChange={e=>setMinutes(Number(e.target.value))} className="min-h-[44px] w-full rounded-xl border border-slate-200 px-3 text-sm"/></div><div><span className="mb-2 block text-sm font-semibold">Tổng thời lượng giữ lại</span><div className="flex min-h-[44px] items-center rounded-xl bg-blue-50 px-3 text-sm font-bold text-blue-700">{total || '—'} phút</div></div></div>
+        <div><label htmlFor="scenario-note" className="mb-2 block text-sm font-semibold">Lý do điều chỉnh <span className="font-normal text-slate-400">(tùy chọn)</span></label><textarea id="scenario-note" rows={3} value={note} onChange={e=>setNote(e.target.value)} placeholder="Ví dụ: dành thêm thời gian giải thích lỗi thường gặp trong bài kiểm tra." className="w-full rounded-xl border border-slate-200 p-3 text-sm"/><p className="mt-2 text-xs leading-relaxed text-slate-500">Phép tính dùng nội dung và số phút bạn chọn. Ghi chú được lưu để giảng viên đối chiếu, chưa được mô hình AI tự diễn giải.</p></div>
+        <button className={`${button} w-full bg-blue-600 text-white hover:bg-blue-700`} disabled={busy||!ready||!targetId||!Number.isInteger(minutes)||minutes<1||minutes>60}><PlayCircle className="h-4 w-4"/>{busy?'Đang tính phương án…':'Tính phương án thử'}</button>
+        {formChanged && <p className="text-xs leading-relaxed text-amber-800">Bạn đã đổi thông số. Bấm Tính phương án thử để cập nhật kết quả trước khi tạo bản nháp.</p>}
+      </form>
+      <section className="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-7 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{comparison?'So sánh trước và sau':'Kế hoạch hiện tại'}</h2><span className="text-xs text-slate-500">Phiên bản {workspace?.lecture.version}</span></div>
+        {comparison&&<><p className="text-sm text-slate-600">Thêm <strong>{comparison.added_minutes ?? comparison.practice_delta} phút</strong> cho <strong>{comparison.target_title || 'phần thực hành'}</strong>.</p><p className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${comparison.feasible?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{comparison.feasible?<CheckCircle2 className="h-4 w-4"/>:<AlertTriangle className="h-4 w-4"/>}{comparison.feasible?'Đáp ứng ràng buộc thời lượng':'Phương án chưa đáp ứng ràng buộc'}</p></>}
+        {segments.length?<div className="overflow-x-auto"><table className="w-full min-w-[360px] text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs text-slate-500"><th className="py-3 pr-3 font-medium">Nội dung</th><th className="px-2 py-3 text-right font-medium">Hiện tại</th>{comparison&&<><th className="px-2 py-3 text-right font-medium">Phương án</th><th className="py-3 pl-2 text-right font-medium">Thay đổi</th></>}</tr></thead><tbody>{(comparison?.baseline_segments || segments).map(s=>{const next=comparison?.scenario_segments.find(n=>n.id===s.id);const delta=(next?.minutes ?? s.minutes)-s.minutes;return <tr key={s.id} className={`border-b border-slate-100 ${delta>0?'bg-blue-50/70':''}`}><td className="py-3 pr-3 leading-relaxed">{s.title}</td><td className="px-2 text-right tabular-nums text-slate-500">{s.minutes}′</td>{comparison&&<><td className="px-2 text-right font-semibold tabular-nums">{next?.minutes ?? '—'}′</td><td className={`pl-2 text-right font-semibold tabular-nums ${delta>0?'text-blue-600':delta<0?'text-amber-700':'text-slate-400'}`}>{delta>0?'+':''}{delta}′</td></>}</tr>;})}</tbody><tfoot><tr className="font-bold"><td className="pt-4">Tổng thời lượng</td><td className="px-2 pt-4 text-right">{comparison?.baseline_total ?? total}′</td>{comparison&&<><td className="px-2 pt-4 text-right">{comparison.scenario_total}′</td><td className="pt-4 text-right">{comparison.scenario_total-comparison.baseline_total}′</td></>}</tr></tfoot></table></div>:<p className="py-10 text-center text-sm text-slate-500">Kế hoạch xuất hiện sau khi giảng viên duyệt kiến thức có nguồn.</p>}
+        {comparison&&<><ul className="space-y-2 text-xs leading-relaxed text-slate-500">{comparison.assumptions.map(a=><li key={a}>{a}</li>)}</ul>{comparison.violations.length>0&&<ul className="space-y-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{comparison.violations.map(v=><li key={v}>{v}</li>)}</ul>}{stale&&<p className="text-sm text-amber-800">Kết quả thuộc phiên bản cũ. Bạn có thể chạy một phương án mới từ kế hoạch hiện tại.</p>}{role==='teacher'&&<button onClick={apply} disabled={busy||stale||formChanged||!comparison.feasible||!scenarioId} className={`${button} bg-blue-600 text-white hover:bg-blue-700`}><Plus className="h-4 w-4"/>Tạo bản nháp từ phương án</button>}</>}
+        <p className="border-t border-slate-100 pt-4 text-xs leading-relaxed text-slate-500">Đây là phân bổ thời gian cho việc giảng dạy, không sửa video và không dự đoán điểm số. Giảng viên kiểm tra tính phù hợp sư phạm trước khi phát hành.</p>
+      </section>
+    </div>
+    {saved.length>0&&<section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="mb-3 flex items-center gap-2 text-base font-bold"><History className="h-4 w-4 text-blue-600"/>Các phương án đã lưu</h2><div className="divide-y divide-slate-100">{[...saved].reverse().map(s=><div key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">{s.title}</h3><p className="mt-1 text-xs text-slate-500">{s.comparison.target_title || 'Thực hành'} · +{s.comparison.added_minutes ?? s.comparison.practice_delta} phút · Nguồn phiên bản {s.base_version}{s.base_version!==workspace?.lecture.version?' · đã có bản mới':''}</p></div><button className={`${button} border border-slate-200 text-blue-700`} onClick={()=>{setComparison(s.comparison);setScenarioId(s.id);setTarget(s.comparison.target_segment_id || segments.find(segment=>segment.kind==='practice')?.id || '');setMinutes(s.comparison.added_minutes ?? s.comparison.practice_delta);setNote(s.request);}}>{scenarioId===s.id?'Đang xem':'Xem kết quả'}</button></div>)}</div></section>}
+  </motion.div>;
+}

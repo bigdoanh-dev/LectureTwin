@@ -42,6 +42,8 @@ interface StudentLearnViewProps {
 export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor = false }) => {
   const {
     workspace,
+    bootstrap,
+    selectLecture,
     currentLectureId,
     setCurrentView,
     seekVideoTo,
@@ -97,6 +99,9 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
     setConversation([]);
     setActiveTranscriptIndex(null);
     setSelectedVideoEvidence(null);
+    setPlayerTime(0);
+    setPlayerDuration(0);
+    lastProgressSaveRef.current = 0;
     setProgressNotice(null);
     setBookmarkError(null);
 
@@ -210,6 +215,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
     try {
       const initialJob = await api.askTutor(currentLectureId, textToSend);
       const tutorJob = await api.waitForJob(initialJob, abortCtrl.signal);
+      if (abortCtrl.signal.aborted) return;
 
       const respTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (tutorJob.status === 'completed' && tutorJob.result) {
@@ -255,7 +261,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
         }
       ]);
     } finally {
-      setAsking(false);
+      if (!abortCtrl.signal.aborted) setAsking(false);
     }
   };
 
@@ -286,6 +292,10 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
         <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
           Học từ bài giảng đã được giảng viên duyệt.
         </p>
+        <label htmlFor="student-lecture" className="mt-4 block text-xs font-semibold text-slate-500">Chọn bài học</label>
+        <select id="student-lecture" value={currentLectureId} onChange={event => selectLecture(event.target.value)} className="mt-2 min-h-[44px] w-full max-w-lg rounded-xl border border-slate-200 bg-white px-3 text-sm">
+          {bootstrap?.lectures.map(lecture => <option key={lecture.id} value={lecture.id}>{lecture.title}</option>)}
+        </select>
       </div>
 
       {progressNotice && (
@@ -296,6 +306,24 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
           </button>
         </div>
       )}
+
+      <details className="rounded-xl border border-[#e1e7ef] bg-white p-4 sm:p-5">
+        <summary className="min-h-[44px] cursor-pointer text-sm font-bold text-[#12213b]">Mục tiêu và nội dung cần học</summary>
+        <div className="mt-3 space-y-3">
+          {workspace?.research?.objectives.map(objective => (
+            <div key={objective.id} className="border-t border-slate-100 pt-3 text-sm">
+              <p className="font-semibold">{objective.title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                {objective.confirmed_concept_ids.length
+                  ? `Nội dung được giảng viên liên kết: ${objective.confirmed_concept_ids.map(id => workspace.concepts.find(c => c.id === id)?.label || id).join(', ')}.`
+                  : 'Chưa có liên kết nguồn được giảng viên xác nhận trong bản phát hành này.'}
+              </p>
+            </div>
+          ))}
+          <p className="text-xs text-slate-500">Mục tiêu bài học là định hướng học tập. Kết quả của bạn được ghi nhận riêng qua bài kiểm tra.</p>
+        </div>
+      </details>
+      {workspace?.research?.sample_notes_outdated && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Bản phát hành này dùng bộ ghi chú mẫu cũ. Mốc nguồn cần được giảng viên đối chiếu và cập nhật ở phiên bản tiếp theo.</p>}
 
       {/* 2. Main Grid: Left 60% vs Right 40% matching student concept PNG */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

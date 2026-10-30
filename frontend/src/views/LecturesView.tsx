@@ -176,7 +176,7 @@ export const LecturesView: React.FC = () => {
             Quản lý bài giảng & Học liệu
           </h1>
           <p className="text-sm sm:text-[15px] text-[#5f708b] font-medium mt-1">
-            Phân biệt rõ: Trích đoạn video mẫu 50 GIÂY và Thời lượng kế hoạch giảng dạy 50 PHÚT.
+            Tạo bài giảng, khai báo chuẩn đầu ra và tải video cùng phụ đề hoặc slide để đối chiếu nội dung.
           </p>
         </div>
 
@@ -499,7 +499,7 @@ export const LecturesView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-[#12213b] mb-1">Mục tiêu học tập (mỗi dòng 1 mục tiêu):</label>
+                <label className="block font-bold text-[#12213b] mb-1">Chuẩn đầu ra cần đối chiếu (mỗi dòng một CLO hoặc mục tiêu):</label>
                 <textarea
                   rows={3}
                   value={objectives}

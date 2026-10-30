@@ -56,8 +56,9 @@ export const Header: React.FC<HeaderProps> = ({
     if (currentRole === 'teacher') {
       return [
         { id: 'lectures' as ViewType, label: 'Bài giảng' },
-        { id: 'ai' as ViewType, label: 'AI hỗ trợ' },
-        { id: 'assessment' as ViewType, label: 'Lớp học' },
+        { id: 'ai' as ViewType, label: 'Hiểu bài giảng' },
+        { id: 'simulation' as ViewType, label: 'Điều chỉnh bài giảng' },
+        { id: 'assessment' as ViewType, label: 'Kết quả học tập' },
       ];
     }
     if (currentRole === 'student') {
@@ -79,11 +80,11 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-30 bg-white border-b border-[#e1e7ef] shadow-2xs w-full">
       <div className="max-w-[1440px] mx-auto px-2.5 sm:px-4 md:px-8 h-[64px] sm:h-[72px] flex items-center justify-between gap-2 sm:gap-4">
         {/* Left: Brand Logo & Wordmark (Tuned for 320px: logo ~26px, wordmark 18px, compact gap) */}
-        <div className="flex items-center gap-3 sm:gap-6 md:gap-10 shrink-0 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6 md:gap-10">
           <button
             type="button"
             onClick={() => onSelectView(currentRole === 'teacher' ? 'ai' : currentRole === 'student' ? 'student' : 'admin')}
-            className="flex items-center gap-1.5 sm:gap-2.5 group text-left cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea] rounded-xl p-0.5 sm:p-1 min-h-[44px]"
+            className="flex min-w-0 max-w-full items-center gap-1.5 sm:gap-2.5 group text-left cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea] rounded-xl p-0.5 sm:p-1 min-h-[44px]"
             aria-label="Về trang chính LectureTwin"
           >
             <BookOpen className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-[#2959ea] shrink-0" strokeWidth={2.2} />
@@ -93,10 +94,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {/* Primary Top Nav Links (Desktop md+) */}
-          <nav aria-label="Điều hướng chính" className="hidden md:flex items-center space-x-2 h-[72px]">
+          <nav aria-label="Điều hướng chính" className="hidden xl:flex items-center space-x-2 h-[72px]">
             {navItems.map((item) => {
               const isActive = currentView === item.id ||
-                (item.id === 'ai' && ['agents', 'graph', 'twin', 'simulation'].includes(currentView));
+                (item.id === 'ai' && ['agents', 'graph', 'twin'].includes(currentView));
               return (
                 <button
                   key={item.id}
@@ -164,10 +165,10 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Mobile Navigation Row (< md) */}
-      <div className="md:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 flex items-center space-x-1 overflow-x-auto h-[48px] bg-white scrollbar-none">
+      <div className="xl:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 flex items-center space-x-1 overflow-x-auto h-[48px] bg-white scrollbar-none">
         {navItems.map((item) => {
           const isActive = currentView === item.id ||
-            (item.id === 'ai' && ['agents', 'graph', 'twin', 'simulation'].includes(currentView));
+            (item.id === 'ai' && ['agents', 'graph', 'twin'].includes(currentView));
           return (
             <button
               key={item.id}

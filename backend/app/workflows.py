@@ -7,7 +7,7 @@ import shutil
 import time
 from pathlib import Path
 from pydantic import BaseModel, Field
-from . import store, domain
+from . import store, domain, research
 from .fixtures import AGENTS, CONCEPTS, EDGES
 
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='lecture-agent')
@@ -154,7 +154,7 @@ def verify_lecture(lecture):
         findings.append({'id': f"finding-{concept['id']}", 'concept_id': concept['id'], 'title': f"{concept['label']}: {'có nguồn để xác nhận' if valid else 'thiếu bằng chứng hợp lệ'}",
             'description': 'Giảng viên cần kiểm tra nội dung và nguồn trước khi xác nhận.', 'severity': 'info' if valid else 'warning',
             'has_evidence': bool(valid), 'source_ids': [e['id'] for e in valid], 'status': 'pending', 'note': ''})
-    if lecture.get('sample_attached'):
+    if lecture.get('sample_attached') and not any(c['id'] == 'complexity' for c in lecture['concepts']):
         findings.append({'id': 'finding-extension', 'concept_id': 'complexity', 'title': 'Nội dung mở rộng: chưa đủ nguồn về độ phức tạp',
             'description': 'Bộ mẫu chưa cung cấp bằng chứng cho phần này. Không đưa vào nội dung đã xác nhận nếu chưa bổ sung nguồn.',
             'severity': 'warning', 'has_evidence': False, 'source_ids': [], 'status': 'pending', 'note': ''})
@@ -260,7 +260,7 @@ def execute(job_id):
                 current.update(status='needs_review', result={'findings': lecture['findings'], 'media_report': lecture.get('media_report')})
                 save_job(current)
                 return
-            result = step(job, 'pedagogical', 'map_objectives', lambda _: {'coverage': [{'objective': objective, 'evidence_concepts': [c['id'] for c in lecture['concepts'] if c['verified']],
+            result = step(job, 'pedagogical', 'map_objectives', lambda _: {'coverage': [{'objective': objective, 'evidence_concepts': [c['id'] for c in lecture['concepts'] if c['verified'] and c['id'] in research.expected_concepts(objective)],
                 'status': 'needs_manual_mapping', 'note': 'Đối chiếu sơ bộ theo bộ từ khóa; giảng viên đánh giá mức độ phù hợp.'} for objective in lecture['objectives']]}, None)
             if boundary(job_id): return
             lecture = store.get('lectures', lecture['id'])
@@ -288,7 +288,7 @@ def execute(job_id):
             store.put('assessments', assessment)
             final = {'assessment_id': assessment['id'], 'question_count': len(questions)}
         elif job['workflow'] == 'planning':
-            planned = step(job, 'planning', 'plan_timetable', lambda a: run_tool(a, 'evaluate_scenario', job['input'], lambda: domain.evaluate_scenario(lecture, job['input']['add_practice_minutes'], job['input']['total_limit'])), 'verification')
+            planned = step(job, 'planning', 'plan_timetable', lambda a: run_tool(a, 'evaluate_scenario', job['input'], lambda: domain.evaluate_scenario(lecture, job['input'].get('add_minutes') or job['input']['add_practice_minutes'], job['input']['total_limit'], job['input'].get('target_segment_id'))), 'verification')
             if boundary(job_id): return
             comparison = planned['result']
             step(job, 'verification', 'validate_constraints', lambda _: {'feasible': comparison['feasible'], 'violations': comparison['violations']}, None)

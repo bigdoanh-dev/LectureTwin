@@ -21,8 +21,11 @@ def snapshot(lecture, event, details):
     return entry
 
 
-def analytics(lid, user=None):
+def analytics(lid, user=None, version=None):
     attempts = store.items('attempts', lid)
+    if version is not None:
+        assessment_ids = {a['id'] for a in store.items('assessments', lid) if a.get('version') == version}
+        attempts = [a for a in attempts if a['assessment_id'] in assessment_ids]
     if user and user['role'] == 'student':
         attempts = [a for a in attempts if a['owner_id'] == user['id']]
     latest = {}
@@ -45,6 +48,7 @@ def publication_payload(lecture):
 
 
 def workspace(lecture, user):
+    from . import research
     if user['role'] == 'student':
         data = deepcopy(lecture.get('published_payload', {}))
         if not data:
@@ -63,7 +67,7 @@ def workspace(lecture, user):
     assessments = store.items('assessments', lid)
     if user['role'] == 'student':
         assessments = [public_assessment(a) for a in assessments if a['status'] == 'published' and a['version'] == lecture['published_version']]
-    result = analytics(lid, user)
+    result = analytics(lid, user, data['version'])
     if user['role'] == 'admin':
         result.pop('attempts', None)
     scenarios = [] if user['role'] == 'student' else store.items('scenarios', lid)
@@ -72,7 +76,7 @@ def workspace(lecture, user):
         assessment_ready = bool(create_questions(data))
     except ValueError:
         assessment_ready = False
-    return {'lecture': summary(data), 'planned': data['planned'], 'capabilities': {'can_generate_assessment': assessment_ready},
+    return {'lecture': summary(data), 'planned': data['planned'], 'research': research.view(data, user), 'capabilities': {'can_generate_assessment': assessment_ready},
         **{k: data.get(k, []) for k in ('assets', 'transcript', 'slides', 'concepts', 'edges', 'evidence', 'findings')},
         'jobs': sorted(jobs, key=lambda j: j['created_at'], reverse=True), 'assessments': assessments, 'scenarios': scenarios,
         'progress': progress, 'twin': {'planned': data['planned'], 'observed': {'concepts': len(data.get('concepts', [])),
@@ -183,21 +187,21 @@ def ensure_planning_ready(lecture):
         raise HTTPException(409, 'Kế hoạch chưa khớp với các ý chính đã duyệt của học liệu này')
 
 
-def evaluate_scenario(lecture, delta, total_limit):
+def evaluate_scenario(lecture, delta, total_limit, target_segment_id=None):
     baseline = deepcopy(lecture['planned']['segments'])
     scenario = deepcopy(baseline)
-    target = next((s for s in scenario if s['kind'] == 'practice'), None)
+    target = next((s for s in scenario if s['id'] == target_segment_id), None) if target_segment_id else next((s for s in scenario if s['kind'] == 'practice'), None)
     violations = []
     if not target:
-        violations.append('Chưa có phần thực hành để điều chỉnh')
+        violations.append('Không tìm thấy nội dung muốn điều chỉnh trong kế hoạch hiện tại')
     else:
         target['minutes'] += delta
         remaining = delta
-        for kind in ('theory', 'intro', 'summary'):
+        for kind in ('theory', 'intro', 'summary', 'practice'):
             for segment in scenario:
-                if segment['kind'] != kind:
+                if segment['kind'] != kind or segment['id'] == target['id']:
                     continue
-                minimum = 5 if kind == 'theory' else 2
+                minimum = 5 if kind == 'theory' else (3 if kind == 'practice' else 2)
                 take = min(remaining, max(0, segment['minutes'] - minimum))
                 segment['minutes'] -= take
                 remaining -= take
@@ -206,11 +210,17 @@ def evaluate_scenario(lecture, delta, total_limit):
     total = sum(s['minutes'] for s in scenario)
     if total > total_limit:
         violations.append(f'Tổng {total} phút vượt giới hạn {total_limit} phút')
-    positions = {s['concept_id']: i for i, s in enumerate(scenario) if s['kind'] != 'practice'}
+    positions = {}
+    for i, s in enumerate(scenario):
+        if s['kind'] != 'practice':
+            for cid in s.get('concept_ids', [s['concept_id']]): positions.setdefault(cid, i)
     for edge in lecture.get('edges', []):
         if edge['type'] == 'prerequisite' and edge['source'] in positions and edge['target'] in positions and positions[edge['source']] > positions[edge['target']]:
             violations.append('Thứ tự kiến thức tiên quyết không hợp lệ')
-    return {'baseline_total': sum(s['minutes'] for s in baseline), 'scenario_total': total, 'practice_delta': delta,
+    return {'baseline_total': sum(s['minutes'] for s in baseline), 'scenario_total': total,
+        'practice_delta': delta if target and target['kind'] == 'practice' else 0,
+        'target_segment_id': target['id'] if target else target_segment_id,
+        'target_title': target['title'] if target else '', 'added_minutes': delta,
         'feasible': not violations, 'violations': violations, 'baseline_segments': baseline, 'scenario_segments': scenario,
         'assumptions': ['Chỉ đánh giá phân bổ thời gian và thứ tự kiến thức, không dự báo điểm số hoặc hiệu quả học tập.',
-            'Giữ tối thiểu 5 phút cho mỗi phần lý thuyết, 2 phút cho mở đầu và tổng kết.', 'Chưa mô hình hóa khác biệt từng học viên.']}
+            'Giữ tối thiểu 5 phút cho mỗi phần lý thuyết, 3 phút thực hành, 2 phút cho mở đầu và tổng kết.', 'Chưa mô hình hóa khác biệt từng học viên.']}

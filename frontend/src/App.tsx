@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { LoginView } from './views/LoginView';
-import { AiWorkspaceView } from './views/AiWorkspaceView';
-import { ExecutionCenterView } from './views/ExecutionCenterView';
+import { ResearchWorkspaceView } from './views/ResearchWorkspaceView';
 import { LecturesView } from './views/LecturesView';
 import { KnowledgeView } from './views/KnowledgeView';
 import { LectureTwinView } from './views/LectureTwinView';
@@ -12,6 +11,8 @@ import { AssessmentView } from './views/AssessmentView';
 import { StudentLearnView } from './views/StudentLearnView';
 import { AdminView } from './views/AdminView';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+
+const ExecutionCenterView = lazy(() => import('./views/ExecutionCenterView').then(module => ({ default: module.ExecutionCenterView })));
 
 function AppContent() {
   const {
@@ -48,7 +49,7 @@ function AppContent() {
     return <LoginView />;
   }
 
-  const isAdvancedView = ['agents', 'graph', 'twin', 'simulation'].includes(currentView);
+  const isAdvancedView = ['agents', 'graph', 'twin'].includes(currentView);
 
   return (
     <div className="min-h-screen bg-[#f6f8fc] text-[#12213b] flex flex-col font-sans antialiased">
@@ -78,7 +79,7 @@ function AppContent() {
               className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-[#2959ea] hover:text-blue-800 bg-white border border-[#e1e7ef] px-3.5 py-2 rounded-xl shadow-2xs transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại AI hỗ trợ</span>
+              <span>Về bài giảng và tri thức</span>
             </button>
           </div>
         )}
@@ -105,7 +106,7 @@ function AppContent() {
         ) : (
           <>
             {/* View Routing */}
-            {currentView === 'ai' && <AiWorkspaceView />}
+            {currentView === 'ai' && <ResearchWorkspaceView key={workspace?.lecture.id} />}
             {currentView === 'lectures' && <LecturesView />}
             {currentView === 'assessment' && <AssessmentView />}
 
@@ -115,7 +116,7 @@ function AppContent() {
             )}
 
             {currentView === 'admin' && <AdminView />}
-            {currentView === 'agents' && <ExecutionCenterView />}
+            {currentView === 'agents' && <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang mở chi tiết xử lý…</p>}><ExecutionCenterView /></Suspense>}
             {currentView === 'graph' && <KnowledgeView />}
             {currentView === 'twin' && <LectureTwinView />}
             {currentView === 'simulation' && <SimulationView />}
