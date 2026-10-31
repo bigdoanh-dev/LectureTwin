@@ -56,10 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
     if (currentRole === 'teacher') {
       return [
         { id: 'lectures' as ViewType, label: 'Bài giảng' },
-        { id: 'ai' as ViewType, label: 'Hiểu bài giảng' },
-        { id: 'simulation' as ViewType, label: 'Điều chỉnh bài giảng' },
-        { id: 'assessment' as ViewType, label: 'Kết quả học tập' },
-        { id: 'questions' as ViewType, label: 'Câu hỏi học viên' },
+        { id: 'ai' as ViewType, label: 'Không gian giảng dạy' },
+        { id: 'assessment' as ViewType, label: 'Bài kiểm tra' },
       ];
     }
     if (currentRole === 'student') {
@@ -98,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
           <nav aria-label="Điều hướng chính" className="hidden xl:flex items-center space-x-2 h-[72px]">
             {navItems.map((item) => {
               const isActive = currentView === item.id ||
-                (item.id === 'ai' && ['agents', 'graph', 'twin'].includes(currentView));
+                (item.id === 'ai' && ['agents', 'graph', 'twin', 'questions', 'simulation'].includes(currentView));
               return (
                 <button
                   key={item.id}
@@ -169,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="xl:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 flex items-center space-x-1 overflow-x-auto h-[48px] bg-white scrollbar-none">
         {navItems.map((item) => {
           const isActive = currentView === item.id ||
-            (item.id === 'ai' && ['agents', 'graph', 'twin'].includes(currentView));
+            (item.id === 'ai' && ['agents', 'graph', 'twin', 'questions', 'simulation'].includes(currentView));
           return (
             <button
               key={item.id}

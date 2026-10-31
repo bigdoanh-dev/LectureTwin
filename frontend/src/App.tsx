@@ -2,11 +2,9 @@ import React, { lazy, Suspense } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { LoginView } from './views/LoginView';
-import { ResearchWorkspaceView } from './views/ResearchWorkspaceView';
 import { LecturesView } from './views/LecturesView';
 import { KnowledgeView } from './views/KnowledgeView';
 import { LectureTwinView } from './views/LectureTwinView';
-import { SimulationView } from './views/SimulationView';
 import { QuestionInsightsView } from './views/QuestionInsightsView';
 import { AssessmentView } from './views/AssessmentView';
 import { StudentLearnView } from './views/StudentLearnView';
@@ -107,10 +105,9 @@ function AppContent() {
         ) : (
           <>
             {/* View Routing */}
-            {currentView === 'ai' && <ResearchWorkspaceView key={workspace?.lecture.id} />}
+            {['ai','questions','simulation'].includes(currentView) && role==='teacher' && <QuestionInsightsView key={workspace?.lecture.id} />}
             {currentView === 'lectures' && <LecturesView />}
             {currentView === 'assessment' && <AssessmentView />}
-            {currentView === 'questions' && role === 'teacher' && <QuestionInsightsView key={workspace?.lecture.id} />}
 
             {/* Shared Student / Tutor single mounted view instance */}
             {(currentView === 'student' || currentView === 'tutor') && (
@@ -121,7 +118,6 @@ function AppContent() {
             {currentView === 'agents' && <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang mở chi tiết xử lý…</p>}><ExecutionCenterView /></Suspense>}
             {currentView === 'graph' && <KnowledgeView />}
             {currentView === 'twin' && <LectureTwinView />}
-            {currentView === 'simulation' && <SimulationView />}
           </>
         )}
       </main>
