@@ -7,6 +7,7 @@ import { LecturesView } from './views/LecturesView';
 import { KnowledgeView } from './views/KnowledgeView';
 import { LectureTwinView } from './views/LectureTwinView';
 import { SimulationView } from './views/SimulationView';
+import { QuestionInsightsView } from './views/QuestionInsightsView';
 import { AssessmentView } from './views/AssessmentView';
 import { StudentLearnView } from './views/StudentLearnView';
 import { AdminView } from './views/AdminView';
@@ -109,6 +110,7 @@ function AppContent() {
             {currentView === 'ai' && <ResearchWorkspaceView key={workspace?.lecture.id} />}
             {currentView === 'lectures' && <LecturesView />}
             {currentView === 'assessment' && <AssessmentView />}
+            {currentView === 'questions' && role === 'teacher' && <QuestionInsightsView key={workspace?.lecture.id} />}
 
             {/* Shared Student / Tutor single mounted view instance */}
             {(currentView === 'student' || currentView === 'tutor') && (

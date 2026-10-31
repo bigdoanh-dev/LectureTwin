@@ -59,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
         { id: 'ai' as ViewType, label: 'Hiểu bài giảng' },
         { id: 'simulation' as ViewType, label: 'Điều chỉnh bài giảng' },
         { id: 'assessment' as ViewType, label: 'Kết quả học tập' },
+        { id: 'questions' as ViewType, label: 'Câu hỏi học viên' },
       ];
     }
     if (currentRole === 'student') {

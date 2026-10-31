@@ -608,6 +608,7 @@ export const StudentLearnView: React.FC<StudentLearnViewProps> = ({ focusTutor =
               <div ref={chatEndRef} />
             </div>
 
+            <p className="text-xs leading-relaxed text-slate-500">Nội dung câu hỏi được tổng hợp cho giảng viên để điều chỉnh bài dạy; biểu đồ không hiển thị tên tài khoản.</p>
             {/* Input Row: NO attachment icon! 44px send button */}
             <form
               onSubmit={(e) => { e.preventDefault(); handleSendQuestion(); }}

@@ -256,6 +256,10 @@ class ApiService {
     return this.request<{ nodes: any[]; edges: any[]; evidence: any[] }>(`/lectures/${lectureId}/graph?q=${q}`);
   }
 
+  async questionInsights<T>(lectureId: string, version?: string): Promise<T> {
+    return this.request<T>(`/lectures/${lectureId}/question-insights${version ? `?version=${encodeURIComponent(version)}` : ''}`);
+  }
+
   // --- Student Tutor ---
   async askTutor(lectureId: string, question: string): Promise<Job> {
     return this.request<Job>(`/lectures/${lectureId}/tutor`, {

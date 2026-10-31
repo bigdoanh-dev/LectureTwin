@@ -201,7 +201,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const setCurrentView = useCallback((view: ViewType) => {
     const allowed: ViewType[] = roleRef.current === 'student' ? ['student', 'tutor', 'assessment', 'graph', 'twin'] :
-      roleRef.current === 'admin' ? ['admin', 'agents', 'graph', 'twin'] : ['ai', 'agents', 'lectures', 'graph', 'twin', 'simulation', 'assessment'];
+      roleRef.current === 'admin' ? ['admin', 'agents', 'graph', 'twin'] : ['ai', 'agents', 'lectures', 'graph', 'twin', 'simulation', 'assessment', 'questions'];
     if (allowed.includes(view)) updateCurrentView(view);
   }, []);
   const seekVideoTo = useCallback((seconds: number) => { if (Number.isFinite(seconds) && seconds >= 0) setVideoSeekTarget(seconds); }, []);

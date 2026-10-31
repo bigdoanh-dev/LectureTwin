@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Response, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
-from . import store, domain, workflows, research
+from . import store, domain, workflows, research, question_insights
 from .auth import current_user, require_role, lecture_access, public_user, password_valid, password_hash, issue, DEMO_MODE
 from .fixtures import seed, sample_sources, new_lecture, AGENTS, PROVIDER_NOTE, SAMPLE_DATA_REVISION
 
@@ -569,6 +569,13 @@ def submit(aid: str, body: Submission, user=Depends(current_user)):
     domain.snapshot(lecture, 'evaluated', 'Có bài nộp mới; tổng hợp kết quả được tính từ bài làm đã lưu')
     store.audit(user, 'SUBMIT_ASSESSMENT', {'assessment_id': aid, 'attempt_id': result['id']}, lecture['id'])
     return result
+
+
+@app.get('/api/lectures/{lid}/question-insights')
+def get_question_insights(lid: str, version: int | None = None, user=Depends(current_user)):
+    require_role(user, 'teacher')
+    lecture = lecture_access(user, lid, edit=True)
+    return question_insights.report(lecture, version if version is not None else lecture.get('published_version') or lecture['version'])
 
 
 @app.get('/api/lectures/{lid}/analytics')

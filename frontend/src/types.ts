@@ -368,6 +368,7 @@ export type ViewType =
   | 'graph'       // Tri thức & bằng chứng
   | 'twin'        // Lecture Twin
   | 'simulation'  // Mô phỏng
+  | 'questions'
   | 'assessment'  // Đánh giá
   | 'student'     // Học tập (Student mode)
   | 'admin';      // Quản trị (Admin mode)
