@@ -111,6 +111,15 @@ export function formatEvidenceLabel(evidence: Evidence): string {
   return evidence.slide_page ? `Slide ${evidence.slide_page}` : 'Xem nguồn học liệu';
 }
 
+export function formatReviewReason(reason: string): string {
+  const definition = reason.match(/^Quotes only mention (.+?), without defining .+? as a unit of functionality in a program\.?$/i);
+  if (definition) return `Trích dẫn chỉ nhắc đến “${definition[1]}”, chưa định nghĩa đầy đủ để xác nhận nhận định này.`;
+  const relation = reason.match(/^Quotes only mention (.+?) and do not support the claim that (.+?)[.!]?$/i);
+  if (relation) return `Trích dẫn “${relation[1]}” chưa đủ căn cứ để xác nhận quan hệ “${relation[2]}”.`;
+  if (/^[A-Za-z]/.test(reason)) return 'Trích dẫn hiện có chưa hỗ trợ đầy đủ nhận định. Hãy mở nội dung và đối chiếu lại với nguồn.';
+  return reason;
+}
+
 export function analysisStages(workspace: Workspace | null) {
   const job = latestAnalysis(workspace);
   return [

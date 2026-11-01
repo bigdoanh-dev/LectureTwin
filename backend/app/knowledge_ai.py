@@ -108,7 +108,7 @@ def verify_claims(lecture):
         response = ai_runtime.generate(Verification,
             'Review each CLAIM against only its QUOTES. supported=true only if the quotes support the whole claim. '
             'A keyword match or co-occurrence is insufficient for a relation or prerequisite claim. '
-            'Do not repair claims or use outside knowledge. Return the exact supplied id and a concise reason. '
+            'Do not repair claims or use outside knowledge. Return the exact supplied id and a concise reason in Vietnamese. '
             'These checks assist a human teacher and do not certify correctness.', {'claims': batch})
         allowed = {claim['id'] for claim in batch}
         checks.update({check.id: check.model_dump() for check in response.checks if check.id in allowed})

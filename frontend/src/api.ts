@@ -11,6 +11,21 @@ import type {
 
 const BASE_URL = '/api';
 
+function formatApiDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item: any) => {
+      const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : undefined;
+      if (field === 'note' && item?.type === 'string_too_short') return 'Ghi chú cần có ít nhất 3 ký tự.';
+      if (field === 'note' && item?.type === 'string_too_long') return 'Ghi chú không được dài quá 1.000 ký tự.';
+      if (typeof item?.msg === 'string') return item.msg;
+      return '';
+    }).filter(Boolean);
+    return messages.join(' ') || 'Thông tin gửi lên chưa đúng định dạng. Vui lòng kiểm tra và thử lại.';
+  }
+  return 'Không thể hoàn tất yêu cầu. Vui lòng kiểm tra thông tin và thử lại.';
+}
+
 export class ApiError extends Error {
   status: number;
   detail: string;
@@ -70,7 +85,7 @@ class ApiService {
       try {
         const data = await res.json();
         if (data && data.detail) {
-          detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+          detail = formatApiDetail(data.detail);
         }
       } catch {
         // ignore

@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { Upload, Video, FileText, Sparkles, ShieldCheck, Check, ArrowRight, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
-import { analysisProgress, formatEvidenceLabel, formatTimestamp, latestAnalysis, lessonWorkflow, uploadFileKind } from '../presentation';
+import { analysisProgress, formatEvidenceLabel, formatReviewReason, formatTimestamp, latestAnalysis, lessonWorkflow, uploadFileKind } from '../presentation';
 
 type Phase = 'uploading' | 'analyzing' | null;
 const buttonClass = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500';
@@ -20,7 +20,8 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
   const [phase, setPhase] = useState<Phase>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [reviewNote, setReviewNote] = useState('');
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
   const [dragging, setDragging] = useState(false);
   const draftTargetRef = useRef('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,12 +119,22 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
     setBusy(true);
     try { await onPublish(); } finally { setBusy(false); }
   };
-  const decide = async (findingId: string, decision: 'confirm' | 'reject') => {
+  const decide = async (finding: NonNullable<typeof workspace>['findings'][number], decision: 'confirm' | 'reject') => {
+    const note = (reviewNotes[finding.id] || '').trim();
+    const noteRequired = decision === 'reject' || (decision === 'confirm' && finding.requires_individual_review);
+    if (noteRequired && note.length < 3) {
+      setReviewErrors(previous => ({ ...previous, [finding.id]: decision === 'reject'
+        ? 'Hãy ghi lý do loại nội dung, tối thiểu 3 ký tự.'
+        : 'Nội dung này cần ghi nhận xét đối chiếu nguồn, tối thiểu 3 ký tự.' }));
+      document.getElementById(`finding-note-${finding.id}`)?.focus();
+      return;
+    }
+    setReviewErrors(previous => { const next = { ...previous }; delete next[finding.id]; return next; });
     setBusy(true); setError('');
     try {
-      await api.decideFinding(currentLectureId, findingId, decision, reviewNote);
+      await api.decideFinding(currentLectureId, finding.id, decision, note);
       await Promise.all([refreshWorkspace(), refreshBootstrap()]);
-    } catch (e: any) { setError(e.detail || e.message || 'Chưa lưu được quyết định.'); }
+    } catch (e: any) { setReviewErrors(previous => ({ ...previous, [finding.id]: e.detail || e.message || 'Chưa lưu được quyết định.' })); }
     finally { setBusy(false); }
   };
   const openSource = (seconds: number) => {
@@ -195,8 +206,7 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
         </div>}
         {step === 3 && <div className="space-y-4">
           <div><h2 className="text-lg font-bold text-[#12213b]">3. Kiểm tra và duyệt kết quả</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Đọc các đề xuất và đối chiếu nguồn. Chỉ nội dung được bạn chấp nhận mới đưa vào bài dành cho học viên.</p></div>
-          <label className="block text-sm font-medium text-slate-700">Nhận xét khi duyệt riêng hoặc loại nội dung<textarea value={reviewNote} onChange={event => setReviewNote(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm" rows={2} maxLength={1000} placeholder="Ghi rõ điều đã đối chiếu với nguồn" /></label>
-          <ul className="grid gap-2 sm:grid-cols-2">{workspace?.findings.map(finding => <li key={finding.id} className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${finding.has_evidence ? 'border-slate-200' : 'border-amber-200 bg-amber-50'}`}>{finding.has_evidence ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />}<div><p className="font-semibold text-[#12213b]">{finding.title}</p><p className="mt-1 text-xs text-slate-500">{finding.status === 'confirmed' ? 'Đã chấp nhận' : finding.status === 'rejected' ? 'Đã loại khỏi bài học' : finding.has_evidence ? 'Có nguồn · Chờ bạn xác nhận' : 'Chưa đủ nguồn · Cần bổ sung hoặc loại'}</p>{finding.requires_individual_review && <p className="mt-2 text-xs text-amber-800">Cần duyệt riêng: {finding.ai_verification?.reason || finding.description}</p>}<details className="mt-2 text-xs text-slate-600"><summary className="min-h-[32px] cursor-pointer font-semibold text-blue-700">Xem nội dung và dẫn chứng</summary><p className="my-2 leading-relaxed">{finding.description}</p>{workspace.evidence.filter(evidence => finding.source_ids.includes(evidence.id)).map(evidence => <figure key={evidence.id} className="my-2 rounded-lg bg-slate-50 p-3"><blockquote className="whitespace-pre-wrap leading-relaxed">{evidence.text}</blockquote><figcaption className="mt-2">{typeof evidence.start === 'number' ? <button type="button" onClick={() => openSource(evidence.start!)} className="min-h-[32px] font-semibold text-blue-700">{formatEvidenceLabel(evidence)}</button> : <span>{formatEvidenceLabel(evidence)}</span>}</figcaption></figure>)}</details>{finding.status === 'pending' && <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={busy || !finding.has_evidence} onClick={() => void decide(finding.id, 'confirm')} className="min-h-[44px] rounded-lg border border-blue-200 px-3 text-xs font-semibold text-blue-700 disabled:opacity-50">Xác nhận riêng</button><button type="button" disabled={busy} onClick={() => void decide(finding.id, 'reject')} className="min-h-[44px] rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 disabled:opacity-50">Loại nội dung</button></div>}</div></li>)}</ul>
+          <ul className="grid gap-3 sm:grid-cols-2">{workspace?.findings.map(finding => <li key={finding.id} className={`flex min-w-0 items-start gap-2 rounded-xl border p-3 text-sm ${finding.has_evidence ? 'border-slate-200' : 'border-amber-200 bg-amber-50'}`}>{finding.has_evidence ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />}<div className="min-w-0 flex-1"><p className="break-words font-semibold text-[#12213b]">{finding.title}</p><p className="mt-1 text-xs text-slate-500">{finding.status === 'confirmed' ? 'Đã chấp nhận' : finding.status === 'rejected' ? 'Đã loại khỏi bài học' : finding.has_evidence ? 'Có nguồn · Chờ bạn xác nhận' : 'Chưa đủ nguồn · Cần bổ sung hoặc loại'}</p>{finding.requires_individual_review && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs leading-relaxed text-amber-900">Cần duyệt riêng: {formatReviewReason(finding.ai_verification?.reason || finding.description)}</p>}<details className="mt-2 text-xs text-slate-600"><summary className="min-h-[36px] cursor-pointer font-semibold text-blue-700">Xem nội dung và dẫn chứng</summary><p className="my-2 leading-relaxed">{finding.description}</p>{workspace.evidence.filter(evidence => finding.source_ids.includes(evidence.id)).map(evidence => <figure key={evidence.id} className="my-2 rounded-lg bg-slate-50 p-3"><blockquote className="whitespace-pre-wrap leading-relaxed">{evidence.text}</blockquote><figcaption className="mt-2">{typeof evidence.start === 'number' ? <button type="button" onClick={() => openSource(evidence.start!)} className="min-h-[36px] break-words text-left font-semibold text-blue-700">{formatEvidenceLabel(evidence)}</button> : <span>{formatEvidenceLabel(evidence)}</span>}</figcaption></figure>)}</details>{finding.status === 'pending' && <div className="mt-3 space-y-2"><label htmlFor={`finding-note-${finding.id}`} className="block text-xs font-semibold text-slate-700">Ghi chú cho quyết định <span className="font-normal text-slate-500">(tối thiểu 3 ký tự khi xác nhận riêng hoặc loại)</span><textarea id={`finding-note-${finding.id}`} value={reviewNotes[finding.id] || ''} onChange={event => { const value = event.target.value; setReviewNotes(previous => ({ ...previous, [finding.id]: value })); if (value.trim().length >= 3) setReviewErrors(previous => { const next = { ...previous }; delete next[finding.id]; return next; }); }} className="mt-1.5 min-h-[76px] w-full resize-y rounded-lg border border-slate-200 bg-white p-2.5 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" rows={2} maxLength={1000} placeholder="Ví dụ: Đã đối chiếu với đoạn nguồn phía trên." /></label>{reviewErrors[finding.id] && <p role="alert" className="break-words rounded-lg bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700">{reviewErrors[finding.id]}</p>}<div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !finding.has_evidence} onClick={() => void decide(finding, 'confirm')} className="min-h-[44px] rounded-lg border border-blue-200 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50" title={!finding.has_evidence ? 'Chưa có dẫn chứng để xác nhận' : undefined}>Xác nhận riêng</button><button type="button" disabled={busy} onClick={() => void decide(finding, 'reject')} className="min-h-[44px] rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Loại nội dung</button></div></div>}</div></li>)}</ul>
           {workflow.canReview && hasContentResults && <button type="button" onClick={onReview} className={buttonClass}>Ghi quyết định duyệt</button>}
           {workflow.canPublish && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 p-4"><p className="text-sm font-semibold text-emerald-800">Đã lưu quyết định duyệt. Bạn có thể xuất bản cho học viên.</p><button type="button" disabled={busy} onClick={publish} className={buttonClass}>Xuất bản cho học viên</button></div>}
           {workflow.published && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">Đã xuất bản. Học viên có thể sử dụng bài giảng này.</p>}

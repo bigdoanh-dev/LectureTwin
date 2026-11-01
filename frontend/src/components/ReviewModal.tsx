@@ -22,10 +22,14 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   const [note, setNote] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const trimmedNote = note.trim();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!note.trim()) return;
+    if (trimmedNote.length < 3) {
+      setErrorMessage('Ghi chú cần có ít nhất 3 ký tự.');
+      return;
+    }
     setSubmitting(true);
     setErrorMessage(null);
     try {
@@ -59,7 +63,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               <h3 className="font-bold text-base sm:text-lg text-[#12213b]">
                 Kiểm tra nội dung trước khi giao
               </h3>
-              <p className="text-xs text-[#5f708b] mt-0.5">
+              <p className="mt-0.5 text-xs leading-relaxed text-[#5f708b]">
                 Hãy xem nội dung và nguồn dẫn trước khi quyết định đưa chúng vào bài học.
               </p>
             </div>
@@ -75,7 +79,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
         </div>
 
         {errorMessage && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-900 flex items-start gap-2">
+          <div role="alert" className="flex items-start gap-2 break-words rounded-xl border border-red-200 bg-red-50 p-3 text-sm leading-relaxed text-red-900">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
             <span>{errorMessage}</span>
           </div>
@@ -93,18 +97,25 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="teacher-review-note" className="block text-xs font-bold text-[#12213b] mb-1.5">
-              Ghi chú cho quyết định <span className="text-rose-600">(bắt buộc)</span>:
+            <label htmlFor="teacher-review-note" className="mb-1.5 block text-sm font-semibold text-[#12213b]">
+              Ghi chú cho quyết định <span className="text-rose-600">(tối thiểu 3 ký tự)</span>:
             </label>
             <textarea
               id="teacher-review-note"
               rows={3}
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              minLength={3}
+              maxLength={1000}
+              aria-describedby="teacher-review-note-hint"
               className="w-full bg-[#f6f8fc] border border-[#e1e7ef] rounded-xl p-3 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea] leading-relaxed resize-none"
               placeholder="Ví dụ: Đã kiểm tra các ý chính và nguồn dẫn kèm theo."
               required
             />
+            <p id="teacher-review-note-hint" className="mt-1.5 flex justify-between gap-2 text-xs leading-relaxed text-[#5f708b]">
+              <span>Ghi ngắn gọn việc đã đối chiếu với nguồn.</span>
+              <span className="shrink-0">{trimmedNote.length}/1000</span>
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-[#e1e7ef]">
@@ -118,7 +129,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={submitting || !note.trim()}
+              disabled={submitting || trimmedNote.length < 3}
               className="px-4 py-2 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#2959ea] hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2959ea]"
             >
               <Check className="w-4 h-4" />
