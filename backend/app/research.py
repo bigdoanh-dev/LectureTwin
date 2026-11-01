@@ -46,12 +46,20 @@ def view(lecture, user):
     evidence = [e for e in lecture.get('evidence', []) if e.get('valid')]
     found = {c['id'] for c in concepts if any(e['concept_id'] == c['id'] for e in evidence)}
     verified = {c['id'] for c in concepts if c.get('verified') and any(e['concept_id'] == c['id'] and e.get('verified') for e in evidence)}
+    # Pedagogical LLM links are suggestions for this processed source version only.
+    # They must never populate confirmed_concept_ids or bypass a teacher decision.
+    concept_ids = {c['id'] for c in concepts}
+    coverage = {row['objective']: row for row in lecture.get('coverage', []) if row.get('objective')}
     objectives, signals = [], []
     for index, title in enumerate(lecture.get('objectives', []), 1):
         oid = f'clo-{index}'
         saved = lecture.get('objective_mappings', {}).get(oid, {})
         same_source = saved.get('version') == version and saved.get('title') == title
-        expected = saved['expected_concept_ids'] if same_source else expected_concepts(title, concepts if lecture.get('knowledge_method') == 'local_llm' else None)
+        semantic = coverage.get(title) if lecture.get('knowledge_method') == 'local_llm' and lecture.get('analysis_version') == version else None
+        expected = (saved['expected_concept_ids'] if same_source else
+            list(dict.fromkeys(cid for cid in semantic.get('evidence_concepts', []) if cid in concept_ids)) if semantic is not None else
+            expected_concepts(title, concepts if lecture.get('knowledge_method') == 'local_llm' else None))
+        suggestion_method = 'teacher_mapping' if same_source else 'local_llm' if semantic is not None else 'lexical'
         confirmed = saved.get('concept_ids', []) if same_source else []
         reviewed = same_source and lecture.get('analysis_version') == version and set(confirmed) <= verified
         ids = [cid for cid in expected if cid in found]
@@ -59,11 +67,13 @@ def view(lecture, user):
         objectives.append({'id': oid, 'title': title, 'expected_concept_ids': expected,
             'found_concept_ids': ids, 'missing_concept_ids': missing,
             'confirmed_concept_ids': confirmed if reviewed else [],
-            'status': 'confirmed' if reviewed else ('suggested' if expected else 'unmapped'), 'version': version})
+            'status': 'confirmed' if reviewed else ('suggested' if expected else 'unmapped'),
+            'suggestion_method': suggestion_method, 'version': version})
         if not reviewed and source_processed:
             signals.append({'id': f'map-{oid}', 'kind': 'mapping_needed', 'objective_id': oid,
                 'title': f'{oid.upper()} cần giảng viên đối chiếu',
-                'description': 'Liên kết theo từ khóa mới là gợi ý, chưa xác nhận mức đạt chuẩn đầu ra.'})
+                'description': ('Liên kết do AI đề xuất cần giảng viên đối chiếu với nguồn; chưa xác nhận mức đạt chuẩn đầu ra.' if suggestion_method == 'local_llm'
+                    else 'Liên kết theo từ khóa mới là gợi ý, chưa xác nhận mức đạt chuẩn đầu ra.')})
         for cid in missing:
             label = next((c['label'] for c in concepts + CATALOG if c['id'] == cid), cid)
             signals.append({'id': f'missing-{oid}-{cid}', 'kind': 'missing_source', 'concept_id': cid, 'objective_id': oid,

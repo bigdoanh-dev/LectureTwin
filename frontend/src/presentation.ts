@@ -1,4 +1,4 @@
-import type { ConceptNode, Evidence, Job, Workspace } from './types';
+import type { AIConfiguration, ConceptNode, Evidence, Job, Workspace } from './types';
 
 /** These selectors describe real workspace data; they never generate new claims. */
 export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' | null {
@@ -7,6 +7,17 @@ export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' 
   if (['pdf', 'pptx', 'docx', 'txt', 'md'].includes(extension || '')) return 'slides';
   if (extension === 'vtt' || extension === 'json') return 'transcript';
   return null;
+}
+export function aiCapabilitySummary(config: AIConfiguration | null | undefined): string {
+  if (config?.mode !== 'LOCAL_AI') return 'Chế độ luật xử lý dữ liệu mẫu; chưa bật mô hình AI local cho nguồn mới.';
+  const model = config.llm_model || 'mô hình AI local';
+  const verification = config.verification_mode === 'separate_model_check'
+    ? `mô hình kiểm chứng riêng ${config.verifier_model || 'được cấu hình'}`
+    : `cùng mô hình ${model} tạo nội dung và kiểm chứng`;
+  const scope = config.multimodal_scope === 'asr_document_text_scene_ocr'
+    ? 'Phạm vi đọc gồm lời nói, văn bản tài liệu và OCR khung hình video được lấy mẫu.'
+    : 'Phạm vi đọc gồm văn bản nguồn và nội dung được nhận dạng từ học liệu.';
+  return `Các bước xử lý được điều phối; ${verification} hỗ trợ giảng viên. ${scope}`;
 }
 export function workspaceSections(workspace: Workspace | null) {
   const workflow = lessonWorkflow(workspace);
@@ -71,10 +82,11 @@ export function analysisProgress(job: Job | null) {
   const read = agents.find(a => a.agent === 'perception');
   const knowledge = agents.find(a => a.agent === 'knowledge');
   const verify = agents.find(a => a.agent === 'verification');
+  const readResult = read?.output?.result;
   const verifiedAutomatically = verify?.status === 'needs_review' && verify.tools.some(tool => tool.name === 'validate_evidence' && tool.status === 'completed');
   const reviewed = verify?.status === 'completed' && Boolean(verify.teacher_reviewed_at);
   return [
-    { id: 'read', title: 'Đọc học liệu', status: read?.status || 'idle', detail: read?.status === 'completed' ? `Đã đọc ${read.output?.result?.transcript_segments ?? 0} ghi chú và ${read.output?.result?.slide_pages ?? 0} trang trình chiếu.` : 'Đọc thông tin nguồn và các ghi chú được cung cấp.' },
+    { id: 'read', title: 'Đọc học liệu', status: read?.status || 'idle', detail: read?.status === 'completed' ? `Đã đọc ${readResult?.transcript_segments ?? 0} ghi chú, ${readResult?.document_pages ?? readResult?.slide_pages ?? 0} trang tài liệu và ${readResult?.sampled_frames ?? readResult?.keyframes?.length ?? 0} khung hình video được lấy mẫu.` : 'Đọc thông tin nguồn và các ghi chú được cung cấp.' },
     { id: 'knowledge', title: 'Tìm ý chính', status: knowledge?.status || 'idle', detail: knowledge?.status === 'completed' ? `Tìm thấy ${knowledge.output?.result?.concept_count ?? 0} ý chính, gắn với ${knowledge.output?.result?.evidence_count ?? 0} liên kết nguồn.` : 'Tìm từ khóa và gắn ý chính với đoạn nguồn tương ứng.' },
     { id: 'verify', title: 'Đối chiếu nguồn', status: verifiedAutomatically ? 'completed' : verify?.status || 'idle', detail: verifiedAutomatically || verify?.status === 'completed' ? 'Đã kiểm tra mốc dẫn chứng và đánh dấu các mục cần bạn xem.' : 'Kiểm tra mốc dẫn chứng và phát hiện mục thiếu nguồn.' },
     { id: 'review', title: 'Bạn duyệt', status: reviewed ? 'completed' : job?.status === 'needs_review' ? 'needs_review' : 'idle', detail: reviewed ? 'Đã lưu quyết định của giảng viên.' : job?.status === 'needs_review' ? 'Đang chờ bạn kiểm tra đề xuất. Hệ thống dừng tại đây để bạn quyết định.' : 'Mở sau khi hệ thống đã tạo đề xuất có dẫn nguồn.' },
@@ -116,7 +128,6 @@ export function formatReviewReason(reason: string): string {
   if (definition) return `Trích dẫn chỉ nhắc đến “${definition[1]}”, chưa định nghĩa đầy đủ để xác nhận nhận định này.`;
   const relation = reason.match(/^Quotes only mention (.+?) and do not support the claim that (.+?)[.!]?$/i);
   if (relation) return `Trích dẫn “${relation[1]}” chưa đủ căn cứ để xác nhận quan hệ “${relation[2]}”.`;
-  if (/^[A-Za-z]/.test(reason)) return 'Trích dẫn hiện có chưa hỗ trợ đầy đủ nhận định. Hãy mở nội dung và đối chiếu lại với nguồn.';
   return reason;
 }
 

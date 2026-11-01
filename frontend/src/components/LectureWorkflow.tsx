@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { Upload, Video, FileText, Sparkles, ShieldCheck, Check, ArrowRight, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
-import { analysisProgress, formatEvidenceLabel, formatReviewReason, formatTimestamp, latestAnalysis, lessonWorkflow, uploadFileKind } from '../presentation';
+import { aiCapabilitySummary, analysisProgress, formatEvidenceLabel, formatReviewReason, formatTimestamp, latestAnalysis, lessonWorkflow, uploadFileKind } from '../presentation';
 
 type Phase = 'uploading' | 'analyzing' | null;
 const buttonClass = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500';
@@ -183,7 +183,7 @@ export function LectureWorkflow({ onReview, onPublish, step, onStepChange, onSho
             </div>
           </details>
           {!!files.length && <ul aria-label="Tệp đã chọn" className="space-y-2">{files.map(file => <li key={file.name} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm"><span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-blue-600" /><span className="break-all">{file.name}</span><span className="shrink-0 text-xs text-slate-500">{file.size < 1024 * 1024 ? `${Math.max(1, Math.ceil(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`}</span></span><button type="button" disabled={busy} aria-label={`Bỏ tệp ${file.name}`} onClick={() => setFiles(files.filter(item => item !== file))} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-slate-100"><X className="h-4 w-4" /></button></li>)}</ul>}
-          <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">{localAI ? 'AI local nhận dạng lời giảng, đọc văn bản và OCR khi cần, rồi tạo bản đồ tri thức có dẫn chứng. Mọi kết quả cần bạn kiểm tra; chữ trong khung hình được lấy mẫu chưa thể hiện toàn bộ sơ đồ.' : 'Chế độ luật: video cần phụ đề hoặc slide có chữ. Bật AI local để nhận dạng lời giảng và tạo bản đồ tri thức từ nguồn mới.'}</p>
+          <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">{localAI ? aiCapabilitySummary(workspace?.ai || bootstrap?.ai) : 'Chế độ luật: video cần phụ đề hoặc slide có chữ. Bật AI local để nhận dạng lời giảng và tạo bản đồ tri thức từ nguồn mới.'}</p>
           {needsNewLecture && !supplementing && <p className="text-xs text-slate-500">Những tệp được chọn trong lần tải này tạo thành một bài giảng mới. Bài đang xem được giữ nguyên; tệp cũ không tự ghép vào bài mới.</p>}
           {!!userAssets.length && <div className="space-y-2"><p className="text-xs font-semibold text-slate-500">Tệp của bài đang xem</p>{userAssets.map(asset => <p key={asset.id} className="flex items-center gap-2 text-sm text-slate-600"><Check className="h-4 w-4 text-emerald-600" />{asset.name}</p>)}</div>}
           <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={!files.length || running} onClick={uploadAndAnalyze} className={buttonClass}>{busy ? <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> : <ArrowRight className="h-4 w-4" />}{phase === 'uploading' ? 'Đang tải lên…' : supplementing ? 'Bổ sung và xử lý lại video' : 'Tải học liệu và tạo bản đồ'}</button></div>

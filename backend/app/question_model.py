@@ -16,7 +16,7 @@ def configured_path():
 @lru_cache(maxsize=4)
 def load_model(path, modified):
     model = json.loads(Path(path).read_text())
-    if model.get('schema_version') != 1 or model.get('labels') != LABELS:
+    if model.get('schema_version') not in (1, 2) or model.get('labels') != LABELS:
         raise ValueError('Phiên bản mô hình phân loại không được hỗ trợ')
     return model
 
@@ -34,7 +34,12 @@ def predict(text):
     vector = vectorizer.transform([text])
     logits = np.asarray(vector @ np.array(model['coefficients']).T).ravel() + np.array(model['intercepts'])
     scores = [1 / (1 + math.exp(-max(-700, min(700, float(value))))) for value in logits]
-    return {'levels': [label for label, score in zip(LABELS, scores) if score >= model['threshold']],
+    thresholds = model.get('thresholds', [model.get('threshold', .5)] * len(LABELS))
+    if isinstance(thresholds, dict):
+        thresholds = [thresholds[label] for label in LABELS]
+    if len(thresholds) != len(LABELS) or not all(isinstance(t, (int, float)) and 0 < t < 1 for t in thresholds):
+        raise ValueError('Ngưỡng mô hình phân loại không hợp lệ')
+    return {'levels': [label for label, score, threshold in zip(LABELS, scores, thresholds) if score >= threshold],
         'method': 'trained_tfidf_logistic_multilabel', 'model_id': model['model_id'],
         'training_provenance': model['training_provenance'],
         'limitation': 'Phân loại yêu cầu trong câu hỏi; không đánh giá năng lực người học. Điểm quyết định chưa được hiệu chuẩn thành độ tin cậy.'}

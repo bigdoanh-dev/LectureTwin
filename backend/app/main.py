@@ -686,7 +686,7 @@ def map_objective(lid: str, oid: str, body: ObjectiveMapping, user=Depends(curre
             raise HTTPException(409, 'Nguồn đã đổi phiên bản; mở lại bài giảng trước khi xác nhận CLO')
         objective = next((o for o in research.view(lecture, user)['objectives'] if o['id'] == oid), None)
         if not objective: raise HTTPException(404, 'Không tìm thấy chuẩn đầu ra')
-        catalog = {c['id'] for c in research.CATALOG}
+        catalog = {c['id'] for c in (lecture['concepts'] if lecture.get('knowledge_method') == 'local_llm' else research.CATALOG)}
         supported = {c['id'] for c in lecture['concepts'] if c.get('verified') and any(
             e['concept_id'] == c['id'] and e.get('valid') and e.get('verified') for e in lecture['evidence'])}
         if not set(body.expected_concept_ids) <= catalog or not set(body.concept_ids) <= supported or not set(body.concept_ids) <= set(body.expected_concept_ids):

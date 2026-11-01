@@ -7,4 +7,7 @@ if [ ! -x backend/.venv/bin/python ]; then echo "Chạy npm run setup trước."
 backend/.venv/bin/python -m pip install -r backend/requirements-ai.txt
 ollama pull "${LECTURE_LLM_MODEL:-qwen2.5:3b}"
 ollama pull "${LECTURE_EMBEDDING_MODEL:-bge-m3}"
+if [ -n "${LECTURE_VERIFIER_MODEL:-}" ] && [ "${LECTURE_VERIFIER_MODEL}" != "${LECTURE_LLM_MODEL:-qwen2.5:3b}" ]; then
+  ollama pull "${LECTURE_VERIFIER_MODEL}"
+fi
 echo "AI local đã cài. Chạy npm run dev:ai; mô hình ASR tải ở lần nhận dạng đầu tiên."

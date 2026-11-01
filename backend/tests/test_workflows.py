@@ -308,7 +308,9 @@ def test_real_media_metadata_frames_and_http_range(client):
     local['sample_attached'] = False
     local['assets'] = [a for a in local['assets'] if a.get('source_type') != 'youtube_reference']
     report = ORIGINAL_PROBE(local)
-    assert len(report['keyframes']) == 3 and report['asr'] == report['vision'] == 'unavailable'
+    assert 1 <= len(report['keyframes']) <= 3 and report['asr'] == report['vision'] == 'unavailable'
+    assert report['frame_sampling']['method'] == 'scene_change_with_max_gap'
+    assert report['keyframes'][0]['timestamp'] == 0
     # Exercise the actual FFmpeg tool, not the stub used by orchestration unit tests.
     import subprocess
     path = store.DATA / 'media' / 'sample-lecture.mp4'

@@ -40,7 +40,8 @@ import {
   formatEvidenceLabel,
   formatTimestamp,
   currentAssessments,
-  workspaceSections
+  workspaceSections,
+  aiCapabilitySummary
 } from '../presentation';
 import { Evidence, AssessmentQuestion, ScenarioComparison } from '../types';
 
@@ -1113,7 +1114,7 @@ export const AiWorkspaceView: React.FC = () => {
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
               <strong className="text-[#2959ea] block">2. Cách xử lý trong bản demo:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                {workspace?.ai?.mode === 'LOCAL_AI' ? 'AI local nhận dạng lời giảng và OCR khi cần; mô hình trích khái niệm, quan hệ và dẫn chứng từ nguồn thực tế. Bước kiểm chứng gắn cờ nội dung cần duyệt riêng.' : 'Chế độ luật tìm từ khóa trong dữ liệu mẫu; chưa bật mô hình AI local cho nguồn mới.'}
+                {aiCapabilitySummary(workspace?.ai)}
               </p>
             </div>
 

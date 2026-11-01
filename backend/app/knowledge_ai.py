@@ -24,6 +24,7 @@ class Node(StrictModel):
     label: str = Field(min_length=2, max_length=120)
     description: str = Field(min_length=3, max_length=240)
     references: list[Reference] = Field(min_length=1, max_length=1)
+    existing_concept_id: str | None = None
 
 
 class Relation(StrictModel):
@@ -53,7 +54,7 @@ class AnswerCheck(StrictModel):
 def verify_answer(result):
     if result.get('method') != 'local_rag':
         return {'valid_citations': not result.get('citations'), 'semantic_supported': False, 'note': 'Không sinh câu trả lời khi thiếu nguồn.'}
-    response = ai_runtime.generate(AnswerCheck,
+    response = ai_runtime.generate_verification(AnswerCheck,
         'Check whether ANSWER is supported entirely by EVIDENCE. Reject unsupported details, code, '
         'or conclusions even if the topic matches. Use no outside knowledge. '
         'Return supported=false when uncertain. This is a model check, not human certification.',
@@ -103,15 +104,23 @@ def verify_claims(lecture):
     claims += [{'id': e['id'], 'claim': f"{labels.get(e['source'])} --{e['label']}--> {labels.get(e['target'])}",
         'quotes': [evidence[eid]['text'] for eid in e.get('evidence_ids', []) if eid in evidence]} for e in lecture['edges']]
     checks = {}
-    for start in range(0, len(claims), 10):
-        batch = claims[start:start + 10]
-        response = ai_runtime.generate(Verification,
-            'Review each CLAIM against only its QUOTES. supported=true only if the quotes support the whole claim. '
-            'A keyword match or co-occurrence is insufficient for a relation or prerequisite claim. '
-            'Do not repair claims or use outside knowledge. Return the exact supplied id and a concise reason in Vietnamese. '
-            'These checks assist a human teacher and do not certify correctness.', {'claims': batch})
+    def check_batch(batch):
+        try:
+            response = ai_runtime.generate_verification(Verification,
+                'Review each CLAIM against only its QUOTES. supported=true only if quotes support the entire claim. '
+                'A keyword match or co-occurrence is insufficient for a relation or prerequisite claim. '
+                'Use no outside knowledge. Return exact supplied id and a Vietnamese reason under 80 characters. '
+                'These checks assist a human teacher and do not certify correctness.', {'claims': batch})
+        except ai_runtime.ProviderUnavailable:
+            if len(batch) <= 10:
+                raise
+            middle = len(batch) // 2
+            check_batch(batch[:middle]); check_batch(batch[middle:])
+            return
         allowed = {claim['id'] for claim in batch}
         checks.update({check.id: check.model_dump() for check in response.checks if check.id in allowed})
+    for start in range(0, len(claims), 20):
+        check_batch(claims[start:start + 20])
     for claim in claims:
         checks.setdefault(claim['id'], {'id': claim['id'], 'supported': False, 'reason': 'Mô hình chưa trả kết quả đối chiếu cho nhận định này.'})
     return checks
@@ -161,9 +170,41 @@ def source_segments(lecture):
     return rows
 
 
+def quote_projection(text, code=False):
+    """Normalize presentation only; keep accents, numbers, negation and code operators."""
+    chars, offsets = [], []
+    for index, char in enumerate(text):
+        normalized_char = unicodedata.normalize('NFKC', char)
+        for value in normalized_char if code else normalized_char.casefold():
+            value = ' ' if value.isspace() or (not code and value in '.,;:!?“”‘’"') else value
+            if value == ' ' and (not chars or chars[-1] == ' '):
+                continue
+            chars.append(value)
+            offsets.append(index)
+    while chars and chars[-1] == ' ':
+        chars.pop(); offsets.pop()
+    return ''.join(chars), offsets
+
+
 def supported(reference, sources):
     source = sources.get(reference.source_id)
-    return source if source and reference.quote in source['text'] else None
+    if not source:
+        return None
+    if reference.quote in source['text']:
+        return {**source, 'matched_quote': reference.quote, 'quote_validation': 'exact_quote_match'}
+    code = bool(re.search(r'[=<>+*/{}\[\]()]|\w\.\w', source['text'] + reference.quote))
+    wanted, _ = quote_projection(reference.quote, code)
+    actual, offsets = quote_projection(source['text'], code)
+    if len(wanted) < 12:
+        return None
+    start = actual.find(wanted)
+    while start >= 0:
+        end = start + len(wanted)
+        if (start == 0 or not actual[start - 1].isalnum()) and (end == len(actual) or not actual[end].isalnum()):
+            quote = source['text'][offsets[start]:offsets[end - 1] + 1]
+            return {**source, 'matched_quote': quote, 'quote_validation': 'normalized_quote_source_span'}
+        start = actual.find(wanted, start + 1)
+    return None
 
 
 def extract_graph(lecture):
@@ -188,20 +229,23 @@ def extract_graph(lecture):
     if current_batch:
         grouped.append(current_batch)
     start = 0
+    key_map, relation_batches, ambiguous_keys = {}, [], set()
     for batch in grouped:
         ai_runtime.checkpoint()
         sources = {row['id']: row for row in batch}
+        local_keys = dict(key_map)
         result = ai_runtime.generate(GraphBatch,
             'Extract a concise knowledge graph of the computing lesson in SOURCES. '
             'Use at most 5 concepts and 4 relations per batch if supported; no predefined BFS/DFS vocabulary. '
             'Be concise: descriptions under 120 characters and quotes under 160 characters. '
             'Each concept AND each relation needs an exact verbatim quote and source_id from SOURCES. '
-            'relations.source and relations.target MUST be concept.key values from your concepts array, never source IDs. '
+            'Reuse existing_concept_id from KNOWN_CONCEPTS only for exactly the same entity, including true naming aliases. '
+            'Do not merge broader, narrower or merely related concepts. '
+            'relations.source and relations.target may be concept.key values or known concept IDs, never source IDs. '
             'For example, if keys are module and import, use source=import,target=module,type=uses. '
             'Relations must be explicitly supported by their quotes, not merely co-occurrence. '
             'Use canonical concept names and stable short keys. Do not infer prerequisite order unless explicit. '
-            'If sources have no educational facts, return empty arrays.', {'sources': batch})
-        key_map = {}
+            'If sources have no educational facts, return empty arrays.', {'sources': batch, 'known_concepts': [{'id': c['id'], 'label': c['label'], 'description': c['description']} for c in concepts.values()]})
         for node in result.concepts:
             refs = [(ref, supported(ref, sources)) for ref in node.references]
             refs = [(ref, source) for ref, source in refs if source]
@@ -209,22 +253,47 @@ def extract_graph(lecture):
                 rejected += 1
                 continue
             canonical = normalized(node.label)
-            cid = label_keys.setdefault(canonical, 'concept-' + hashlib.sha256(canonical.encode()).hexdigest()[:12])
-            key_map[node.key] = cid
+            existing = node.existing_concept_id if node.existing_concept_id in concepts else None
+            cid = existing or label_keys.get(canonical) or 'concept-' + hashlib.sha256(canonical.encode()).hexdigest()[:12]
+            label_keys[canonical] = cid
+            key_map[cid] = cid
+            local_keys[cid] = cid
+            # Model-local aliases must never shadow another canonical concept ID.
+            if node.key not in concepts or node.key == cid:
+                local_keys[node.key] = cid
+                if node.key in key_map and key_map[node.key] != cid:
+                    ambiguous_keys.add(node.key)
+                    key_map.pop(node.key, None)
+                if node.key not in ambiguous_keys:
+                    key_map[node.key] = cid
             concept = concepts.setdefault(cid, {'id': cid, 'label': node.label, 'description': node.description,
                 'verified': False, 'evidence_ids': [], 'method': 'local_llm', 'model': ai_runtime.model_name()})
             for ref, source in refs:
-                eid = 'ev-' + hashlib.sha256((cid + source['id'] + ref.quote).encode()).hexdigest()[:16]
+                eid = 'ev-' + hashlib.sha256((cid + source['id'] + source['matched_quote']).encode()).hexdigest()[:16]
                 evidence[eid] = {'id': eid, 'concept_id': cid, 'kind': source['kind'],
                     'asset_id': source['asset_id'], 'source_segment_id': source['id'], 'source_version': lecture['version'],
                     'start': source['start'], 'end': source['end'], 'slide_page': source['page'],
-                    'text': ref.quote, 'source_type': source['source_type'], 'valid': True, 'verified': False,
+                    'text': source['matched_quote'], 'source_type': source['source_type'], 'valid': True, 'verified': False,
                     'section_index': source.get('section_index'),
-                    'validation': 'exact_quote_match', 'semantic_review': 'pending_teacher'}
+                    'validation': source['quote_validation'], 'semantic_review': 'pending_teacher'}
                 if eid not in concept['evidence_ids']:
                     concept['evidence_ids'].append(eid)
-        for relation in result.relations:
-            source_id, target_id = key_map.get(relation.source), key_map.get(relation.target)
+        relation_batches.append((result.relations, sources, local_keys))
+        batches.append({'offset': start, 'segments': len(batch), 'concepts_proposed': len(result.concepts)})
+        start += len(batch)
+    # A second relation pass can now reference concepts first discovered in later batches.
+    if len(grouped) > 1 and concepts:
+        memory = [{'id': c['id'], 'label': c['label'], 'description': c['description']} for c in concepts.values()]
+        for batch in grouped:
+            result = ai_runtime.generate(GraphBatch,
+                'Extract only explicit relations supported by SOURCES between KNOWN_CONCEPTS. '
+                'Return concepts=[]; use known concept IDs as source/target. A co-occurrence is not a relation. '
+                'Each relation needs a verbatim quote and source_id from this SOURCES batch.',
+                {'sources': batch, 'known_concepts': memory, 'phase': 'relations'})
+            relation_batches.append((result.relations, {r['id']: r for r in batch}, dict(key_map)))
+    for relations, sources, aliases in relation_batches:
+        for relation in relations:
+            source_id, target_id = aliases.get(relation.source), aliases.get(relation.target)
             refs = [(ref, supported(ref, sources)) for ref in relation.references]
             refs = [(ref, source) for ref, source in refs if source]
             if not source_id or not target_id or source_id == target_id or not refs:
@@ -233,24 +302,23 @@ def extract_graph(lecture):
             edge_id = 'edge-' + hashlib.sha256(f'{source_id}:{target_id}:{relation.type}'.encode()).hexdigest()[:12]
             edge_evidence = []
             for ref, source in refs:
-                eid = 'ev-' + hashlib.sha256((edge_id + source['id'] + ref.quote).encode()).hexdigest()[:16]
+                eid = 'ev-' + hashlib.sha256((edge_id + source['id'] + source['matched_quote']).encode()).hexdigest()[:16]
                 evidence[eid] = {'id': eid, 'concept_id': source_id, 'edge_id': edge_id, 'kind': source['kind'],
                     'asset_id': source['asset_id'], 'source_segment_id': source['id'], 'source_version': lecture['version'],
                     'start': source['start'], 'end': source['end'], 'slide_page': source['page'],
-                    'text': ref.quote, 'source_type': source['source_type'], 'valid': True, 'verified': False,
+                    'text': source['matched_quote'], 'source_type': source['source_type'], 'valid': True, 'verified': False,
                     'section_index': source.get('section_index'),
-                    'validation': 'exact_quote_match', 'semantic_review': 'pending_teacher'}
+                    'validation': source['quote_validation'], 'semantic_review': 'pending_teacher'}
                 edge_evidence.append(eid)
+            edge_evidence = list(dict.fromkeys(edges.get(edge_id, {}).get('evidence_ids', []) + edge_evidence))
             edges[edge_id] = {'id': edge_id, 'source': source_id, 'target': target_id, 'type': relation.type,
                 'label': relation.label, 'evidence_ids': edge_evidence, 'verified': False, 'method': 'local_llm'}
-        batches.append({'offset': start, 'segments': len(batch), 'concepts_proposed': len(result.concepts)})
-        start += len(batch)
     for i, node in enumerate(concepts.values()):
         node.update(x=100 + (i % 4) * 180, y=60 + (i // 4) * 140)
     lecture.update(concepts=list(concepts.values()), edges=list(edges.values()), evidence=list(evidence.values()),
         knowledge_method='local_llm', source_segments=rows,
         extraction_report={'source_segments': len(rows), 'processed_segments': len(rows), 'rejected_unsupported': rejected,
-            'batches': batches, 'model': ai_runtime.model_name(), 'semantic_review': 'pending_teacher'})
+            'batches': batches, 'relation_passes': 2 if len(grouped) > 1 else 1, 'entity_resolution': 'accumulated_ids_and_explicit_aliases_pending_teacher', 'model': ai_runtime.model_name(), 'semantic_review': 'pending_teacher'})
     ai_runtime.checkpoint()
     with store.LOCK:
         current = store.get('lectures', lecture['id'])
@@ -258,7 +326,7 @@ def extract_graph(lecture):
             raise ValueError('Nguồn đã đổi phiên bản; không lưu kết quả AI của nguồn cũ.')
         store.put('lectures', lecture)
     return {'concept_count': len(concepts), 'edge_count': len(edges), 'evidence_count': len(evidence),
-        'method': 'local_llm_exact_quote_grounding', **lecture['extraction_report']}
+        'method': 'local_llm_source_span_grounding', **lecture['extraction_report']}
 
 
 def lexical_ranking(question, documents):
@@ -287,13 +355,17 @@ def retrieve(lecture, question):
     if not documents:
         return [], {'method': 'hybrid_bm25_embedding', 'reason': 'no_verified_source'}
     lexical = lexical_ranking(question, documents)
-    vectors = ai_runtime.embeddings([question] + [e['text'] for e in documents])
+    query = ai_runtime.embeddings([question])[0]
+    vectors = ai_runtime.cached_embeddings([e['text'] for e in documents])
     def cosine(a, b):
+        if len(a) != len(b):
+            raise ai_runtime.ProviderUnavailable('Kích thước embedding không khớp; kiểm tra phiên bản mô hình.')
         denominator = math.sqrt(sum(x*x for x in a) * sum(x*x for x in b))
         return sum(x*y for x, y in zip(a, b)) / denominator if denominator else 0
-    semantic = sorted([(i, cosine(vectors[0], v)) for i, v in enumerate(vectors[1:])], key=lambda row: -row[1])
+    threshold = float(os.environ.get('LECTURE_RETRIEVAL_MIN_COSINE', '.45'))
+    semantic = sorted([(i, cosine(query, v)) for i, v in enumerate(vectors)], key=lambda row: -row[1])
     fused = Counter()
-    for ranking in (lexical, semantic):
+    for ranking in ([row for row in lexical if row[1] > 0], [row for row in semantic if row[1] >= threshold]):
         for rank, (index, _) in enumerate(ranking, 1):
             fused[index] += 1 / (60 + rank)
     chosen = [documents[i] for i, _ in fused.most_common(6)]

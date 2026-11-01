@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, analysisControl, analysisProgress, guidedNextAction, uploadFileKind, workspaceSections } from '../src/presentation.ts';
+import { aiCapabilitySummary, buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, formatReviewReason, analysisControl, analysisProgress, guidedNextAction, uploadFileKind, workspaceSections } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -52,13 +52,27 @@ test('Step progress uses actual tool completion and never treats review waiting 
   const job={status:'running',agents:[{agent:'perception',status:'running'}]};
   assert.deepEqual(analysisProgress(job).map(s=>s.status),['running','idle','idle','idle']);
   job.status='needs_review';
-  job.agents=[{agent:'perception',status:'completed',output:{result:{transcript_segments:8,slide_pages:0}}},{agent:'knowledge',status:'completed',output:{result:{concept_count:6,evidence_count:12}}},{agent:'verification',status:'needs_review',tools:[{name:'validate_evidence',status:'completed'}]}];
+  job.agents=[{agent:'perception',status:'completed',output:{result:{transcript_segments:8,document_pages:2,sampled_frames:3}}},{agent:'knowledge',status:'completed',output:{result:{concept_count:6,evidence_count:12}}},{agent:'verification',status:'needs_review',tools:[{name:'validate_evidence',status:'completed'}]}];
   assert.deepEqual(analysisProgress(job).map(s=>s.status),['completed','completed','completed','needs_review']);
-  assert.match(analysisProgress(job)[0].detail,/8 ghi chú/);
+  assert.match(analysisProgress(job)[0].detail,/8 ghi chú, 2 trang tài liệu và 3 khung hình video/);
   job.status='completed';job.agents[2].status='completed';
   assert.equal(analysisProgress(job)[3].status,'idle');
   job.agents[2].teacher_reviewed_at='2026-10-30T00:00:00Z';
   assert.equal(analysisProgress(job)[3].status,'completed');
+});
+test('Review reasons preserve Vietnamese text instead of guessing a translation', () => {
+  const reason='Mô hình chưa trả kết quả cho nhận định này.';
+  assert.equal(formatReviewReason(reason),reason);
+});
+test('AI capability summary describes orchestration and verification scope without autonomy claims', () => {
+  const summary=aiCapabilitySummary({mode:'LOCAL_AI',llm_model:'qwen-local',verification_mode:'same_model_check',
+    coordination_mode:'orchestrated_pipeline',multimodal_scope:'asr_document_text_scene_ocr'});
+  assert.match(summary,/được điều phối/);
+  assert.match(summary,/cùng mô hình qwen-local tạo nội dung và kiểm chứng/);
+  assert.match(summary,/lời nói, văn bản tài liệu và OCR khung hình video được lấy mẫu/);
+  assert.doesNotMatch(summary,/tự chủ|năng lực học viên|dự đoán/i);
+  const separate=aiCapabilitySummary({mode:'LOCAL_AI',llm_model:'writer',verifier_model:'checker',verification_mode:'separate_model_check'});
+  assert.match(separate,/mô hình kiểm chứng riêng checker/);
 });
 test('Analysis offers the next useful action instead of silently restarting a review gate', () => {
   assert.equal(analysisControl(null).action, 'start');

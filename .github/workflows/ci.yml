@@ -14,9 +14,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: python -m pip install -r backend/requirements.txt
+      - run: python -m pip install -r backend/requirements-test.txt
       - run: python scripts/build_sample_media.py
       - run: python -m pytest tests -q
         working-directory: backend

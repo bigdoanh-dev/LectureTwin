@@ -28,3 +28,4 @@ output/
 !requirements.txt
 !requirements-ai.txt
 !requirements-training.txt
+!requirements-test.txt

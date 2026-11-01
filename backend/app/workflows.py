@@ -9,8 +9,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from . import store, domain, research, ai_runtime, knowledge_ai, perception_ai
 from .fixtures import AGENTS, CONCEPTS, EDGES
+from .frame_sampling import scene_keyframes
 
-POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='lecture-agent')
+ANALYSIS_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='lecture-analysis')
+INTERACTIVE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='lecture-interactive')
 SCHEDULED = set()
 
 
@@ -104,13 +106,11 @@ def media_probe(lecture):
     duration = float(metadata.get('format', {}).get('duration', 0))
     folder = store.DATA / 'frames' / lecture['id']
     folder.mkdir(parents=True, exist_ok=True)
-    frames = []
-    positions = [duration * i / 12 for i in range(12)] if ai_runtime.enabled() else [0, min(10, duration / 3), min(24, duration * .6)]
-    for index, position in enumerate(positions):
-        output = folder / f'v{lecture["version"]}-{index}.jpg'
-        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(position), '-i', str(path), '-frames:v', '1', '-vf', 'scale=640:-2', str(output)], capture_output=True, timeout=20, check=True)
-        frames.append({'timestamp': round(position, 2), 'file': output.name, 'url': f"/api/lectures/{lecture['id']}/frames/{output.name}"})
+    frames, sampling = scene_keyframes(path, folder, lecture['version'], limit=24 if ai_runtime.enabled() else 3)
+    for frame in frames:
+        frame['url'] = f"/api/lectures/{lecture['id']}/frames/{frame['file']}"
     return {'status': 'completed', 'duration_seconds': duration, 'keyframes': frames,
+        'frame_sampling': sampling, 'sampled_frames': len(frames),
         'video_codec': next((s.get('codec_name') for s in metadata.get('streams', []) if s.get('codec_type') == 'video'), None),
         'has_audio': any(s.get('codec_type') == 'audio' for s in metadata.get('streams', [])),
         'asr': 'unavailable', 'vision': 'unavailable', 'semantic_source': 'prepared_demo_annotation' if lecture['sample_attached'] else 'manual_transcript_or_slides'}
@@ -128,7 +128,9 @@ def perceive(lecture, agent):
                 '-vn', '-ac', '1', '-ar', '16000', str(output)], capture_output=True, timeout=180, check=True)
             return {'status': 'extracted', 'bytes': output.stat().st_size, 'sample_rate': 16000, 'asr': 'unavailable', 'note': 'Trích xuất âm thanh không phải nhận dạng lời nói.'}
         report['audio'] = run_tool(agent, 'extract_audio', {}, audio)
-    report.update(run_tool(agent, 'read_sources', {}, lambda: {'transcript_segments': len(lecture['transcript']), 'slide_pages': len(lecture['slides']),
+    report.update(run_tool(agent, 'read_sources', {}, lambda: {'transcript_segments': len(lecture['transcript']),
+        'slide_pages': sum(p.get('source_type') != 'sampled_frame_ocr' for p in lecture['slides']),
+        'sampled_frames': len(report.get('keyframes', [])),
         'source_label': 'Video YouTube tham khảo' if lecture.get('sample_attached') else 'Học liệu đã tải lên',
         'transcript_note': 'Các mốc là ghi chú tiếng Việt biên soạn từ phụ đề tự động tiếng Anh.' if lecture.get('sample_attached') else 'Văn bản do giảng viên cung cấp hoặc trích từ tài liệu.'}))
     return perception_ai.read_sources(lecture, report, lambda name, data, function: run_tool(agent, name, data, function))
@@ -384,7 +386,13 @@ def schedule(job_id):
     with store.LOCK:
         if job_id not in SCHEDULED:
             SCHEDULED.add(job_id)
-            POOL.submit(execute, job_id)
+            job = store.get('jobs', job_id)
+            pool = ANALYSIS_POOL if job and job.get('workflow') == 'analysis' else INTERACTIVE_POOL
+            try:
+                pool.submit(execute, job_id)
+            except Exception:
+                SCHEDULED.discard(job_id)
+                raise
 
 
 def create_job(user, lecture, workflow, payload=None, run_async=True):

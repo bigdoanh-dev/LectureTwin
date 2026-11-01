@@ -62,7 +62,8 @@ def test_cloud_jobs_finish_inside_request_instead_of_detached_thread(monkeypatch
     calls = []
     monkeypatch.setenv('VERCEL', '1')
     monkeypatch.setattr(workflows, 'execute', calls.append)
-    monkeypatch.setattr(workflows.POOL, 'submit', lambda *args: pytest.fail('Cloud task escaped request lifecycle'))
+    for pool in (workflows.ANALYSIS_POOL, workflows.INTERACTIVE_POOL):
+        monkeypatch.setattr(pool, 'submit', lambda *args: pytest.fail('Cloud task escaped request lifecycle'))
     workflows.schedule('job-123')
     assert calls == ['job-123']
 

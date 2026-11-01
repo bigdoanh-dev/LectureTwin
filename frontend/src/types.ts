@@ -317,6 +317,10 @@ export interface AIConfiguration {
   llm_model: string | null;
   embedding_model: string | null;
   note: string;
+  coordination_mode?: string;
+  verifier_model?: string | null;
+  verification_mode?: 'same_model_check' | 'separate_model_check' | string;
+  multimodal_scope?: string;
 }
 
 export interface ResearchObjective {
