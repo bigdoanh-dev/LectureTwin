@@ -47,9 +47,9 @@ def main():
     trainer = Trainer(model=model, args=training, train_dataset=train, eval_dataset=validation)
     trainer.train()
     # Select a decision threshold on validation, never on test.
-    val_probabilities = np.asarray(model.predict_proba(validation['text']))
+    val_probabilities = np.asarray(model.predict_proba(validation['text'], as_numpy=True))
     threshold = max((.3, .4, .5, .6), key=lambda t: f1_score(validation['label'], val_probabilities >= t, average='macro', zero_division=0))
-    predicted = np.asarray(model.predict_proba(test['text'])) >= threshold
+    predicted = np.asarray(model.predict_proba(test['text'], as_numpy=True)) >= threshold
     report = {'method': 'setfit_multilingual_encoder_finetuning', 'base_model': model_name,
         'dataset_sha256': baseline['dataset_sha256'], 'training_provenance': baseline['provenance'],
         'steps': args.steps, 'seed': 42, 'threshold_selected_on_validation': threshold,

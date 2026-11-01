@@ -39,13 +39,14 @@ export function knowledgeMapLayout(concepts: ConceptNode[], relationships: Conce
   const groups = Array.from({ length: maxRank + 1 }, () => [] as ConceptNode[]);
   unique.forEach(node => groups[ranks.get(node.id)!].push(node));
   const { width, height } = knowledgeNodeSize;
+  const columnGap = Math.max(104, ...edges.map(edge => Math.min(280, knowledgeRelationLabel(edge).length * 7 + 48)));
   const canvasHeight = Math.max(340, 80 + Math.max(0, ...groups.map(group => group.length)) * (height + 28) - 28);
   const nodes = groups.flatMap((group, rank) => group.map((node, i) => ({ ...node,
-    x: 36 + rank * (width + 104),
+    x: 36 + rank * (width + columnGap),
     y: (canvasHeight - (group.length * (height + 28) - 28)) / 2 + i * (height + 28),
   })));
   return { nodes, edges,
-    width: Math.max(680, 72 + (maxRank + 1) * width + maxRank * 104),
+    width: Math.max(680, 72 + (maxRank + 1) * width + maxRank * columnGap),
     height: canvasHeight,
   };
 }

@@ -16,14 +16,14 @@ class StrictModel(BaseModel):
 
 class Reference(StrictModel):
     source_id: str
-    quote: str = Field(min_length=3, max_length=1200)
+    quote: str = Field(min_length=3, max_length=220)
 
 
 class Node(StrictModel):
     key: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=2, max_length=120)
-    description: str = Field(min_length=3, max_length=1000)
-    references: list[Reference] = Field(min_length=1, max_length=4)
+    description: str = Field(min_length=3, max_length=240)
+    references: list[Reference] = Field(min_length=1, max_length=1)
 
 
 class Relation(StrictModel):
@@ -31,17 +31,17 @@ class Relation(StrictModel):
     target: str
     type: str = Field(pattern='^(uses|prerequisite|part_of|explains|compared_in|related_to)$')
     label: str = Field(min_length=2, max_length=120)
-    references: list[Reference] = Field(min_length=1, max_length=3)
+    references: list[Reference] = Field(min_length=1, max_length=1)
 
 
 class GraphBatch(StrictModel):
-    concepts: list[Node] = Field(max_length=12)
-    relations: list[Relation] = Field(max_length=20)
+    concepts: list[Node] = Field(max_length=5)
+    relations: list[Relation] = Field(max_length=4)
 
 
 class TutorAnswer(StrictModel):
-    answer: str = Field(min_length=1, max_length=6000)
-    evidence_ids: list[str] = Field(max_length=8)
+    answer: str = Field(min_length=1, max_length=1200)
+    evidence_ids: list[str] = Field(max_length=4)
     insufficient_source: bool
 
 
@@ -78,7 +78,7 @@ class Questions(StrictModel):
 class ClaimCheck(StrictModel):
     id: str
     supported: bool
-    reason: str = Field(min_length=3, max_length=500)
+    reason: str = Field(min_length=3, max_length=240)
 
 
 class Verification(StrictModel):
@@ -180,7 +180,7 @@ def extract_graph(lecture):
     current_batch = []
     characters = 0
     for row in rows:
-        if current_batch and (len(current_batch) >= 18 or characters + len(row['text']) > 6500):
+        if current_batch and (len(current_batch) >= 10 or characters + len(row['text']) > 4000):
             grouped.append(current_batch)
             current_batch, characters = [], 0
         current_batch.append(row)
@@ -193,7 +193,8 @@ def extract_graph(lecture):
         sources = {row['id']: row for row in batch}
         result = ai_runtime.generate(GraphBatch,
             'Extract a concise knowledge graph of the computing lesson in SOURCES. '
-            'Use 3-8 concepts if supported; no predefined BFS/DFS vocabulary. '
+            'Use at most 5 concepts and 4 relations per batch if supported; no predefined BFS/DFS vocabulary. '
+            'Be concise: descriptions under 120 characters and quotes under 160 characters. '
             'Each concept AND each relation needs an exact verbatim quote and source_id from SOURCES. '
             'relations.source and relations.target MUST be concept.key values from your concepts array, never source IDs. '
             'For example, if keys are module and import, use source=import,target=module,type=uses. '
@@ -308,10 +309,11 @@ def answer(lecture, question, citations):
                 'citations': [], 'limitation': 'Không có nguồn được phép sử dụng.', 'method': 'source_abstention'}
     response = ai_runtime.generate(TutorAnswer,
         'Answer QUESTION using only EVIDENCE. Cite only supplied evidence IDs. '
-        'Explain step by step when helpful, without revealing hidden reasoning. '
+        'Answer in Vietnamese in at most 3 concise sentences; use only details in the supplied quotes. '
+        'Do not add a long preface, general lecture, or unsupported step. '
         'If evidence does not support an answer, set insufficient_source=true and explain the missing information. '
         'Do not claim that the presence of a citation proves factual correctness.',
-        {'question': question, 'evidence': [{'id': e['id'], 'text': e['text']} for e in citations]})
+        {'question': question, 'evidence': [{'id': e['id'], 'text': e['text']} for e in citations]}, max_tokens=768)
     allowed = {e['id']: e for e in citations}
     if response.insufficient_source or not response.evidence_ids or any(eid not in allowed for eid in response.evidence_ids):
         return {'answer': 'Nguồn hiện tại chưa đủ để trả lời câu hỏi này một cách có căn cứ. Vui lòng hỏi giảng viên hoặc bổ sung tài liệu.',

@@ -154,12 +154,12 @@ export const AiWorkspaceView: React.FC = () => {
     if (!currentLectureId) return;
     setActionLoading(true);
     try {
-      await api.bulkReview(currentLectureId, note);
+      const reviewed = await api.bulkReview(currentLectureId, note);
+      const remaining = reviewed.findings?.filter((finding: {status: string}) => finding.status === 'pending').length || 0;
+      setActionMessage(remaining ? `Đã lưu quyết định. Còn ${remaining} nhận định cần duyệt riêng ở bước 3.` : 'Đã lưu quyết định duyệt; đang hoàn tất liên kết mục tiêu học tập.');
       if (workflow.job?.id) {
-        try {
-          const updated = await api.getJob(workflow.job.id);
-          setActiveJob(updated);
-        } catch { /* silent */ }
+        const updated = await api.getJob(workflow.job.id);
+        setActiveJob(updated);
       }
       await Promise.all([refreshWorkspace(), refreshBootstrap()]);
     } catch (err: any) {

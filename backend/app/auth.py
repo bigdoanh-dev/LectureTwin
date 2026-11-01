@@ -24,11 +24,12 @@ def public_user(user):
 
 
 def issue(user, response):
+    from . import ai_runtime
     token = secrets.token_urlsafe(36)
     expires = (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat()
     store.create_session(hashlib.sha256(token.encode()).hexdigest(), user['id'], expires)
     response.set_cookie('lt_session', token, httponly=True, samesite='lax', max_age=28800, path='/api', secure=bool(os.environ.get('VERCEL')))
-    return {'access_token': token, 'user': public_user(user), 'mode': 'DEMO_FALLBACK'}
+    return {'access_token': token, 'user': public_user(user), 'mode': ai_runtime.configuration()['mode']}
 
 
 def current_user(authorization: str | None = Header(default=None), lt_session: str | None = Cookie(default=None)):
