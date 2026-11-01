@@ -47,12 +47,25 @@ def publication_payload(lecture):
     return deepcopy({key: value for key, value in lecture.items() if key != 'published_payload'})
 
 
+def student_lecture(lecture):
+    data = deepcopy(lecture.get('published_payload', {}))
+    if not data:
+        raise HTTPException(403, 'Chưa có bản bài giảng được xuất bản')
+    data['concepts'] = [c for c in data.get('concepts', []) if c.get('verified')]
+    ids = {c['id'] for c in data['concepts']}
+    data['edges'] = [e for e in data.get('edges', []) if e['source'] in ids and e['target'] in ids
+        and (data.get('knowledge_method') != 'local_llm' or e.get('verified'))]
+    edge_ids = {e['id'] for e in data['edges']}
+    data['evidence'] = [e for e in data.get('evidence', []) if e.get('valid') and e.get('verified')
+        and e['concept_id'] in ids and (not e.get('edge_id') or e['edge_id'] in edge_ids)]
+    data['findings'] = []
+    return data
+
+
 def workspace(lecture, user):
-    from . import research
+    from . import research, ai_runtime
     if user['role'] == 'student':
-        data = deepcopy(lecture.get('published_payload', {}))
-        if not data:
-            raise HTTPException(403, 'Chưa có bản bài giảng được xuất bản')
+        data = student_lecture(lecture)
         data['status'] = 'published'
     else:
         data = deepcopy(lecture)
@@ -76,13 +89,16 @@ def workspace(lecture, user):
         assessment_ready = bool(create_questions(data))
     except ValueError:
         assessment_ready = False
+    if ai_runtime.enabled() and data.get('knowledge_method') == 'local_llm':
+        assessment_ready = data.get('analysis_version') == data['version'] and any(e.get('valid') and e.get('verified') for e in data.get('evidence', []))
     return {'lecture': summary(data), 'planned': data['planned'], 'research': research.view(data, user), 'capabilities': {'can_generate_assessment': assessment_ready},
+        'ai': ai_runtime.configuration(), 'extraction_report': data.get('extraction_report'), 'media_report': data.get('media_report'),
         **{k: data.get(k, []) for k in ('assets', 'transcript', 'slides', 'concepts', 'edges', 'evidence', 'findings')},
         'jobs': sorted(jobs, key=lambda j: j['created_at'], reverse=True), 'assessments': assessments, 'scenarios': scenarios,
         'progress': progress, 'twin': {'planned': data['planned'], 'observed': {'concepts': len(data.get('concepts', [])),
             'verified': sum(c.get('verified', False) for c in data.get('concepts', [])),
             'open_findings': sum(f['status'] == 'pending' for f in data.get('findings', [])),
-            'source_mode': 'prepared_demo_fixture' if data.get('sample_attached') else 'uploaded_partial',
+            'source_mode': 'prepared_demo_fixture' if data.get('sample_attached') else data.get('knowledge_method', 'uploaded_partial'),
             'coverage': data.get('coverage', [])}, 'evaluated': result,
             'scenarios': {'count': len(scenarios)}, 'snapshots': data.get('snapshots', [])}}
 
@@ -112,6 +128,8 @@ def publish(lecture):
         raise HTTPException(409, 'Còn nội dung chưa được giảng viên xác minh')
     if not lecture.get('concepts') or not all(c.get('verified') for c in lecture['concepts']):
         raise HTTPException(409, 'Chưa có tri thức được xác minh để xuất bản')
+    if lecture.get('knowledge_method') == 'local_llm' and any(not e.get('verified') for e in lecture.get('edges', [])):
+        raise HTTPException(409, 'Còn quan hệ tri thức chưa được giảng viên xác nhận')
     active = [j for j in store.items('jobs', lecture['id']) if j['workflow'] == 'analysis' and j['input']['version'] == lecture['version']]
     if not active or active[-1]['status'] != 'completed':
         raise HTTPException(409, 'Workflow phân tích chưa hoàn tất sau kiểm duyệt')

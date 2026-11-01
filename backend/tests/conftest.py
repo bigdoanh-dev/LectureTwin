@@ -5,6 +5,8 @@ import pytest
 
 TEMP = tempfile.TemporaryDirectory(prefix='lecturetwin-tests-')
 os.environ['LECTURE_DB'] = str(Path(TEMP.name) / 'test.db')
+os.environ['LECTURE_AI_PROVIDER'] = 'disabled'
+os.environ['LECTURE_CLASSIFIER_PATH'] = str(Path(TEMP.name) / 'no-trained-model.json')
 # Keep generated media in the normal ignored media location, while DB is disposable.
 from app.main import app
 from app import store, workflows

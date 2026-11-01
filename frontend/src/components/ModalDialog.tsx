@@ -20,13 +20,14 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (isOpen) {
       previouslyFocusedRef.current = (triggerRef?.current || document.activeElement) as HTMLElement | null;
       // Focus first focusable element inside modal
-      const timer = setTimeout(() => {
-        if (dialogRef.current) {
+      if (dialogRef.current) {
           const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
           );
@@ -35,14 +36,13 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
           } else {
             dialogRef.current.focus();
           }
-        }
-      }, 50);
+      }
 
       // Escape listener
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           e.preventDefault();
-          onClose();
+          closeRef.current();
         } else if (e.key === 'Tab' && dialogRef.current) {
           // Focus trap
           const focusables = Array.from(
@@ -65,14 +65,13 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
 
       window.addEventListener('keydown', handleKeyDown);
       return () => {
-        clearTimeout(timer);
         window.removeEventListener('keydown', handleKeyDown);
         if (previouslyFocusedRef.current && typeof previouslyFocusedRef.current.focus === 'function') {
           previouslyFocusedRef.current.focus();
         }
       };
     }
-  }, [isOpen, onClose, triggerRef]);
+  }, [isOpen, triggerRef]);
 
   if (!isOpen) return null;
 

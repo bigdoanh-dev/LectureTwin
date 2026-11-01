@@ -34,9 +34,9 @@ test('Source, questions and improvements share upload, approval and plan prerequ
 });
 test('Upload flow identifies supported files without treating arbitrary text as timed captions', () => {
   assert.equal(uploadFileKind('lecture.MP4'), 'video');
-  for (const name of ['notes.pdf','slides.PPTX']) assert.equal(uploadFileKind(name),'slides');
+  for (const name of ['notes.pdf','slides.PPTX','essay.txt','lesson.docx','notes.md']) assert.equal(uploadFileKind(name),'slides');
   for (const name of ['subtitles.vtt','segments.json']) assert.equal(uploadFileKind(name),'transcript');
-  for (const name of ['essay.txt','program.exe','archive.zip']) assert.equal(uploadFileKind(name),null);
+  for (const name of ['program.exe','archive.zip']) assert.equal(uploadFileKind(name),null);
 });
 test('Guided controls advance only to the next stored checkpoint', () => {
   assert.equal(guidedNextAction(null).label, 'Đọc học liệu');

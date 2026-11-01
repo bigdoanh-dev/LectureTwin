@@ -3,8 +3,8 @@ import type { ConceptNode, Evidence, Job, Workspace } from './types';
 /** These selectors describe real workspace data; they never generate new claims. */
 export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' | null {
   const extension = name.split('.').pop()?.toLowerCase();
-  if (extension === 'mp4') return 'video';
-  if (extension === 'pdf' || extension === 'pptx') return 'slides';
+  if (['mp4', 'mov', 'mkv', 'webm'].includes(extension || '')) return 'video';
+  if (['pdf', 'pptx', 'docx', 'txt', 'md'].includes(extension || '')) return 'slides';
   if (extension === 'vtt' || extension === 'json') return 'transcript';
   return null;
 }
@@ -106,6 +106,7 @@ export function formatTimestamp(seconds: number | null | undefined): string {
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
 }
 export function formatEvidenceLabel(evidence: Evidence): string {
+  if (evidence.kind === 'slide' && evidence.section_index) return `Phần ${evidence.section_index} của tài liệu`;
   if (evidence.start != null && evidence.end != null) return `${formatTimestamp(evidence.start)} – ${formatTimestamp(evidence.end)}`;
   return evidence.slide_page ? `Slide ${evidence.slide_page}` : 'Xem nguồn học liệu';
 }

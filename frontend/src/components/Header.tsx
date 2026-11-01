@@ -9,6 +9,8 @@ import {
   PlayCircle,
   MessageSquare,
   FileText,
+  Users,
+  Activity,
   type LucideIcon
 } from 'lucide-react';
 import { Role, Course, LectureSummary, ViewType, User } from '../types';
@@ -68,8 +70,8 @@ export const Header: React.FC<HeaderProps> = ({
       ];
     }
     return [
-      { id: 'admin' as ViewType, label: 'Tài khoản' },
-      { id: 'agents' as ViewType, label: 'Vận hành' },
+      { id: 'admin' as ViewType, label: 'Tài khoản & phân quyền', icon: Users },
+      { id: 'agents' as ViewType, label: 'Vận hành hệ thống', icon: Activity },
     ];
   };
 
@@ -164,7 +166,9 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Mobile Navigation Row (< md) */}
-      <div className="xl:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 flex items-center space-x-1 overflow-x-auto h-[48px] bg-white scrollbar-none">
+      <div className={currentRole === 'admin'
+        ? 'xl:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 grid grid-cols-2 gap-1 min-h-[56px] bg-white'
+        : 'xl:hidden border-t border-[#e1e7ef] px-2.5 sm:px-4 flex items-center space-x-1 overflow-x-auto h-[48px] bg-white scrollbar-none'}>
         {navItems.map((item) => {
           const isActive = currentView === item.id ||
             (item.id === 'ai' && ['agents', 'graph', 'twin', 'questions', 'simulation'].includes(currentView));
@@ -173,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
               key={item.id}
               type="button"
               onClick={() => onSelectView(item.id)}
-              className={`relative h-full px-3 font-semibold text-xs transition-colors shrink-0 flex items-center min-h-[44px] ${
+              className={`relative h-full font-semibold text-xs transition-colors flex items-center min-h-[44px] ${currentRole === 'admin' ? 'px-1 justify-center text-center leading-snug whitespace-normal' : 'px-3 shrink-0'} ${
                 isActive
                   ? 'text-[#2959ea]'
                   : 'text-[#5f708b] hover:text-[#12213b]'

@@ -7,6 +7,10 @@ BACKEND_PID=""
 cleanup() { if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null || true; fi; }
 trap cleanup EXIT INT TERM
 if curl -fsS http://127.0.0.1:8001/api/health 2>/dev/null | backend/.venv/bin/python -c 'import sys,json; sys.exit(0 if json.load(sys.stdin).get("service")=="LectureTwin-AI" else 1)' >/dev/null 2>&1; then
+    if ! curl -fsS http://127.0.0.1:8001/api/health | backend/.venv/bin/python -c 'import sys,json,os; expected="LOCAL_AI" if os.environ.get("LECTURE_AI_PROVIDER")=="ollama" else "DEMO_FALLBACK"; sys.exit(0 if json.load(sys.stdin).get("mode")==expected else 1)'; then
+        echo "Backend trên cổng8001 đang dùng chế độ khác. Dừng bản LectureTwin đang chạy rồi khởi động lại bằng lệnh đã chọn."
+        exit 1
+    fi
     echo "Dùng lại backend LectureTwin-AI trên cổng8001."
 else
     (cd backend && exec .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001) &

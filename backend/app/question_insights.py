@@ -1,6 +1,6 @@
 """Question-only, explainable request classification; never assesses learner ability."""
 import re
-from . import store
+from . import store, question_model
 from .research import normalized
 
 LEVELS = [
@@ -14,7 +14,7 @@ def matches(text, phrase):
     return bool(re.search(r'(?<!\w)' + re.escape(normalized(phrase)) + r'(?!\w)', normalized(text)))
 
 
-def classify(question, concepts):
+def classify(question, concepts, use_model=True):
     ideas = []
     # Preserve the actual question; splitting is a readable heuristic, not inferred intent.
     for part in re.split(r'[?？;\n]+', question):
@@ -23,6 +23,11 @@ def classify(question, concepts):
         topics = [c['id'] for c in concepts if any(matches(part, term) for term in [c['label'], *c.get('keywords', [])])]
         ideas.append({'text': part.strip(), 'levels': [k for k, v in hits.items() if v], 'topics': topics,
                       'reasons': [f'{l["label"]}: “{p}”' for l in LEVELS for p in hits[l['id']]]})
+        prediction = question_model.predict(part.strip()) if use_model else None
+        if prediction:
+            ideas[-1].update(levels=prediction['levels'], model_id=prediction['model_id'],
+                training_provenance=prediction['training_provenance'],
+                reasons=['Mô hình phân loại yêu cầu đã huấn luyện; không suy ra năng lực học viên.'])
     return {'ideas': ideas, 'levels': sorted({l for i in ideas for l in i['levels']}),
             'topics': sorted({t for i in ideas for t in i['topics']})}
 
@@ -42,8 +47,9 @@ def report(lecture, version):
         ids = [r['id'] for r in rows if set(r['levels']) == set(levels)]
         regions.append({'key': str(mask), 'levels': levels, 'question_ids': ids, 'count': len(ids)})
     topics = [{ 'id': c['id'], 'label': c['label'], 'count': sum(c['id'] in r['topics'] for r in rows)} for c in concepts]
-    return {'version': version, 'versions': versions, 'method': 'question_rules_v1',
+    trained = any(idea.get('model_id') for row in rows for idea in row['ideas'])
+    return {'version': version, 'versions': versions, 'method': 'trained_tfidf_logistic_multilabel' if trained else 'question_rules_v1',
             'levels': [{k: v for k, v in l.items() if k != 'phrases'} for l in LEVELS],
             'questions': rows, 'regions': regions, 'topics': topics, 'total': len(rows),
             'unclassified': sum(not r['levels'] for r in rows),
-            'limitations': 'Chỉ phân loại yêu cầu trong câu hỏi bằng từ khóa, chưa gọi mô hình AI. Đây không phải điểm số, mức hiểu hay đánh giá hiệu quả giảng dạy. Diện tích vòng tròn không biểu thị tỷ lệ.'}
+            'limitations': ('Phân loại bằng mô hình đã huấn luyện; xem nguồn gốc dữ liệu ở từng câu. ' if trained else 'Chỉ phân loại yêu cầu trong câu hỏi bằng từ khóa, chưa gọi mô hình AI. ') + 'Đây không phải điểm số, mức hiểu hay đánh giá hiệu quả giảng dạy. Diện tích vòng tròn không biểu thị tỷ lệ.'}

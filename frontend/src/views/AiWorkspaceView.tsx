@@ -32,6 +32,7 @@ import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { ModalDialog } from '../components/ModalDialog';
 import { LectureWorkflow } from '../components/LectureWorkflow';
+import { KnowledgeMap } from '../components/KnowledgeMap';
 import { api } from '../api';
 import {
   buildLessonSummary,
@@ -400,6 +401,23 @@ export const AiWorkspaceView: React.FC = () => {
       )}
 
       <LectureWorkflow key={currentLectureId} step={workflowStep} onStepChange={setWorkflowStep} onShowResults={() => { setActiveTab('summary'); document.getElementById('lecture-proposals-panel')?.scrollIntoView({ behavior: shouldReduceMotion ? 'instant' : 'smooth', block: 'start' }); }} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
+      <button type="button" onClick={() => setCurrentView('questions')} className="min-h-[44px] text-sm font-semibold text-blue-700 hover:underline">Xem câu hỏi của lớp và điều chỉnh bài dạy</button>
+
+      {sections.hasUpload && Boolean(workspace?.concepts.length) && <KnowledgeMap
+        key={`source-map-${currentLectureId}-${workspace?.lecture.version}`}
+        concepts={workspace?.concepts || []}
+        edges={workspace?.edges || []}
+        selectedConceptId={selectedEvidence?.concept_id || workspace?.concepts[0]?.id || null}
+        isTeacherView
+        title="Bản đồ tri thức từ học liệu của bạn"
+        subtitle="Chọn một khái niệm để xem dẫn chứng. Các quan hệ được tạo từ nguồn và cần giảng viên kiểm tra."
+        notice={workflow.reviewed || workflow.published ? 'Nội dung đã qua bước duyệt của giảng viên.' : 'Bản đề xuất chưa phát hành. Đoạn trích khớp nguồn chưa đồng nghĩa nhận định và quan hệ đã đúng.'}
+        onSelectConcept={id => {
+          const evidence = workspace?.evidence.find(item => item.concept_id === id && item.valid);
+          setSelectedEvidence(evidence || null);
+          if (typeof evidence?.start === 'number') seekVideoTo(evidence.start);
+        }}
+      />}
 
       {/* 3. Main Workspace Grid: Left 43% (Bài giảng gốc) vs Right 57% (Đề xuất từ học liệu) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -423,7 +441,7 @@ export const AiWorkspaceView: React.FC = () => {
           /> : <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="flex items-center gap-2 text-sm font-bold text-[#12213b]"><FileText className="h-4 w-4 text-blue-600" />Nội dung tệp đã tải</p>
             {workspace?.assets.map(asset => <p key={asset.id} className="break-words text-xs font-semibold text-slate-500">{asset.name}</p>)}
-            {workspace?.slides.length && currentEvidence?.kind !== 'transcript' ? (currentEvidence?.kind === 'slide' ? workspace.slides.filter(slide => slide.page === currentEvidence.slide_page) : workspace.slides.slice(0, 2)).map(slide => <div key={slide.page} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">Trang {slide.page}</p>{slide.text || 'Trang này chưa có văn bản trích xuất được.'}</div>) : (currentEvidence?.kind === 'transcript' ? workspace?.transcript.filter(note => note.start === currentEvidence.start && note.end === currentEvidence.end) : workspace?.transcript.slice(0, 2))?.map(note => <div key={note.id} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{formatTimestamp(note.start)} – {formatTimestamp(note.end)}</p>{note.text}</div>)}
+            {workspace?.slides.length && currentEvidence?.kind !== 'transcript' ? (currentEvidence?.kind === 'slide' ? workspace.slides.filter(slide => currentEvidence.section_index ? slide.section_index === currentEvidence.section_index : currentEvidence.slide_page ? slide.page === currentEvidence.slide_page : true) : workspace.slides.slice(0, 2)).map(slide => <div key={slide.page} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{slide.section_index ? `Phần ${slide.section_index}` : `Trang ${slide.page}`}</p>{slide.text || 'Trang này chưa có văn bản trích xuất được.'}</div>) : (currentEvidence?.kind === 'transcript' ? workspace?.transcript.filter(note => note.start === currentEvidence.start && note.end === currentEvidence.end) : workspace?.transcript.slice(0, 2))?.map(note => <div key={note.id} className="rounded-lg bg-white p-3 text-sm leading-relaxed text-slate-600"><p className="mb-1 text-xs font-bold text-blue-700">{formatTimestamp(note.start)} – {formatTimestamp(note.end)}</p>{note.text}</div>)}
             {!workspace?.assets.length && <p className="text-sm text-slate-500">Chọn tệp ở bước 1 để bắt đầu.</p>}
           </div>}
 
@@ -437,7 +455,7 @@ export const AiWorkspaceView: React.FC = () => {
             <div className="text-xs font-bold text-[#12213b]">
               {isSample
                 ? 'Ghi chú học liệu thực hành'
-                : (currentEvidence?.kind === 'slide' ? `Căn cứ từ trang ${currentEvidence.slide_page}` : 'Căn cứ từ phụ đề hoặc bài giảng')}
+                : (currentEvidence?.kind === 'slide' ? formatEvidenceLabel(currentEvidence) : 'Căn cứ từ phụ đề hoặc bài giảng')}
             </div>
 
             {currentEvidence ? (
@@ -448,7 +466,7 @@ export const AiWorkspaceView: React.FC = () => {
                 <div className="text-xs text-[#5f708b] font-medium pt-0.5">
                   {formatEvidenceLabel(currentEvidence)} · {isSample
                     ? 'Diễn giải thủ công từ phụ đề tự động tiếng Anh; chưa chạy nhận dạng giọng nói hoặc hình ảnh'
-                    : (currentEvidence.kind === 'slide' ? 'Nội dung trích từ tệp trình chiếu đã tải lên' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
+                    : (currentEvidence.kind === 'slide' ? 'Đoạn trích từ tài liệu đã tải lên' : 'Nội dung đối chiếu từ bài giảng đã tải lên')}
                 </div>
               </>
             ) : (
@@ -631,7 +649,7 @@ export const AiWorkspaceView: React.FC = () => {
                                 ? row.evidence.source_type === 'youtube_caption_annotation'
                                   ? `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
                                   : `Học liệu thực hành (${formatEvidenceLabel(row.evidence)})`
-                                : (row.evidence.kind === 'slide' ? `Slide trang ${row.evidence.slide_page ?? 1}` : formatEvidenceLabel(row.evidence))}
+                                : formatEvidenceLabel(row.evidence)}
                             </span>
                             <ChevronRight className="w-4 h-4 text-[#5f708b] group-hover:text-[#2959ea]" />
                           </button>
@@ -1042,7 +1060,7 @@ export const AiWorkspaceView: React.FC = () => {
           className="text-[#5f708b] hover:text-[#2959ea] flex items-center gap-1.5 cursor-pointer text-left sm:text-right focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[#2959ea] rounded-md px-1 py-0.5"
         >
           <Info className="w-4 h-4 shrink-0 text-[#5f708b]" />
-          <span>{isSample ? 'Chế độ minh họa: học liệu mẫu và xử lý bằng luật, chưa gọi mô hình AI bên ngoài.' : 'Chế độ minh họa: xử lý văn bản trong tệp đã tải lên bằng luật, chưa gọi mô hình AI bên ngoài.'} (AI được dùng ở đâu?)</span>
+          <span>{workspace?.ai?.note || (isSample ? 'Chế độ minh họa với nguồn mẫu đã chuẩn bị.' : 'Chưa có thông tin bộ xử lý AI.')} (AI được dùng ở đâu?)</span>
         </button>
       </div>
 
@@ -1088,14 +1106,14 @@ export const AiWorkspaceView: React.FC = () => {
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
               <strong className="text-[#2959ea] block">1. Nguồn đưa vào:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                Video tham khảo YouTube, ghi chú theo mốc thời gian hoặc học liệu do giảng viên cung cấp. Bản demo chưa tự nhận dạng video.
+                Video hoặc tài liệu do giảng viên cung cấp. Nguồn tham khảo mẫu được ghi rõ và không được gán cho tệp mới.
               </p>
             </div>
 
             <div className="bg-[#f6f8fc] p-3 rounded-xl border border-[#e1e7ef] space-y-1">
               <strong className="text-[#2959ea] block">2. Cách xử lý trong bản demo:</strong>
               <p className="text-xs sm:text-sm text-[#5f708b]">
-                Quy tắc có sẵn dò từ khóa trong ghi chú, gắn ý chính với mốc nguồn và chọn câu hỏi mẫu. Demo chưa gọi mô hình AI bên ngoài, chưa tự nghe lời thoại hoặc đọc hình ảnh.
+                {workspace?.ai?.mode === 'LOCAL_AI' ? 'AI local nhận dạng lời giảng và OCR khi cần; mô hình trích khái niệm, quan hệ và dẫn chứng từ nguồn thực tế. Bước kiểm chứng gắn cờ nội dung cần duyệt riêng.' : 'Chế độ luật tìm từ khóa trong dữ liệu mẫu; chưa bật mô hình AI local cho nguồn mới.'}
               </p>
             </div>
 
@@ -1109,7 +1127,7 @@ export const AiWorkspaceView: React.FC = () => {
             </div>
 
             <p className="text-xs text-[#5f708b] italic pt-1">
-              Lưu ý minh bạch: Bản thử nghiệm hiện tại chạy trên luật và dữ liệu mẫu đã xác thực; việc tích hợp nhận dạng giọng nói (ASR), mô hình đa phương thức và LLM bên ngoài là hướng phát triển mở rộng tiếp theo.
+              Mô hình có thể sai. Dẫn chứng được đối chiếu với đoạn nguồn, nhưng giảng viên vẫn cần kiểm tra ý nghĩa và quan hệ trước khi phát hành. Trạng thái, số lần gọi và lỗi được lấy từ công việc thực tế.
             </p>
           </div>
 

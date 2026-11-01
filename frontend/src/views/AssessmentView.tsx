@@ -8,7 +8,9 @@ import {
   Send,
   FileQuestion,
   Check,
-  Edit3
+  Edit3,
+  AlertTriangle,
+  ArrowRight
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
@@ -17,12 +19,13 @@ import { QuizSubmissionResult, Assessment, AssessmentQuestion } from '../types';
 import { currentAssessments } from '../presentation';
 
 export const AssessmentView: React.FC = () => {
-  const { workspace, currentLectureId, role, refreshWorkspace, setCurrentView } = useApp();
+  const { workspace, bootstrap, currentLectureId, selectLecture, role, refreshWorkspace, setCurrentView } = useApp();
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [submissionResult, setSubmissionResult] = useState<QuizSubmissionResult | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [generating, setGenerating] = useState<boolean>(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editingQuestions, setEditingQuestions] = useState<AssessmentQuestion[] | null>(null);
   const [editError, setEditError] = useState('');
   const [savingQuestions, setSavingQuestions] = useState(false);
@@ -30,6 +33,17 @@ export const AssessmentView: React.FC = () => {
 
   const shouldReduceMotion = useReducedMotion();
   const genAbortRef = useRef<AbortController | null>(null);
+
+  // Verification status of current lecture for question generation
+  const pendingFindings = (workspace?.findings || []).filter(f => f.status === 'pending');
+  const concepts = workspace?.concepts || [];
+  const verifiedConcepts = concepts.filter(c => c.verified);
+  const isReviewed = Boolean(
+    workspace &&
+    concepts.length > 0 &&
+    verifiedConcepts.length === concepts.length &&
+    pendingFindings.length === 0
+  );
 
   // Current assessments for active lecture version, newest first (Review line 36)
   const assessments = currentAssessments(workspace);
@@ -43,6 +57,7 @@ export const AssessmentView: React.FC = () => {
     setSelectedAnswers({});
     setSubmissionResult(null);
     setMsg(null);
+    setErrorMsg(null);
     setEditingQuestions(null);
   }, [currentLectureId, activeAssessment?.id]);
 
@@ -69,12 +84,13 @@ export const AssessmentView: React.FC = () => {
     if (!activeAssessment || role === 'teacher') return;
     setSubmitting(true);
     setMsg(null);
+    setErrorMsg(null);
     try {
       const res = await api.submitQuiz(activeAssessment.id, selectedAnswers);
       setSubmissionResult(res);
       await refreshWorkspace();
     } catch (err: any) {
-      setMsg(err.detail || err.message || 'Lỗi khi nộp bài kiểm tra');
+      setErrorMsg(err.detail || err.message || 'Lỗi khi nộp bài kiểm tra');
     } finally {
       setSubmitting(false);
     }
@@ -90,6 +106,7 @@ export const AssessmentView: React.FC = () => {
 
     setGenerating(true);
     setMsg(null);
+    setErrorMsg(null);
     try {
       const initialJob = await api.generateAssessment(currentLectureId);
       const asmtJob = await api.waitForJob(initialJob, abortCtrl.signal);
@@ -98,11 +115,11 @@ export const AssessmentView: React.FC = () => {
         await refreshWorkspace();
         setMsg('Đã tạo đề kiểm tra mới thành công từ bài giảng.');
       } else {
-        setMsg(asmtJob.error || 'Không thể tạo đề kiểm tra.');
+        setErrorMsg(asmtJob.error || 'Không thể tạo đề kiểm tra.');
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      setMsg(err.detail || err.message || 'Lỗi tạo bài kiểm tra');
+      setErrorMsg(err.detail || err.message || 'Lỗi tạo bài kiểm tra');
     } finally {
       setGenerating(false);
     }
@@ -146,7 +163,25 @@ export const AssessmentView: React.FC = () => {
               ? 'Tạo câu hỏi, giao bài và xem số lượt nộp cùng kết quả thực tế của học viên.'
               : 'Làm bài kiểm tra đã được giảng viên giao và xem giải thích sau khi nộp.'}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-600">{workspace?.lecture.title}</p>
+
+          {/* Lecture Switcher for convenience */}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <label className="text-xs font-semibold text-[#5f708b]" htmlFor="assessment-lecture-select">
+              Bài giảng:
+            </label>
+            <select
+              id="assessment-lecture-select"
+              value={currentLectureId || ''}
+              onChange={(e) => selectLecture(e.target.value)}
+              className="bg-white border border-[#e1e7ef] rounded-xl px-3 py-1.5 text-xs sm:text-sm font-semibold text-[#12213b] cursor-pointer shadow-2xs focus:ring-2 focus:ring-[#2959ea]"
+            >
+              {bootstrap?.lectures.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title} {l.status === 'published' ? '(Đã duyệt/xuất bản)' : '(Bản thảo)'}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {role === 'teacher' && (
@@ -164,8 +199,40 @@ export const AssessmentView: React.FC = () => {
 
       {msg && (
         <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs sm:text-sm text-[#12213b] flex items-center justify-between">
-          <span>{msg}</span>
-          <button onClick={() => setMsg(null)} className="text-[#2959ea] font-bold p-1">✕</button>
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{msg}</span>
+          </div>
+          <button onClick={() => setMsg(null)} className="text-[#2959ea] font-bold p-1 cursor-pointer">✕</button>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs sm:text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-start sm:items-center space-x-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-bold block text-amber-900">Chưa thể tạo câu hỏi từ bài giảng:</span>
+              <span className="text-amber-800">{errorMsg}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setCurrentView('ai')}
+              className="px-3.5 py-1.5 bg-[#2959ea] hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+            >
+              Đến "AI hỗ trợ" để thẩm định
+            </button>
+            <button
+              type="button"
+              onClick={() => setErrorMsg(null)}
+              className="text-amber-700 hover:text-amber-900 font-bold p-1 cursor-pointer"
+              aria-label="Đóng thông báo"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -211,18 +278,57 @@ export const AssessmentView: React.FC = () => {
 
       {/* Quiz Area */}
       {!activeAssessment ? (
-        <div className="bg-white rounded-xl border border-[#e1e7ef] p-8 text-center shadow-2xs space-y-3">
+        <div className="bg-white rounded-xl border border-[#e1e7ef] p-8 text-center shadow-2xs space-y-4">
           <FileQuestion className="w-10 h-10 text-[#5f708b] mx-auto opacity-40" />
           <h3 className="font-bold text-sm sm:text-base text-[#12213b]">
             {role === 'student'
               ? 'Giảng viên chưa xuất bản bài kiểm tra cho bài học này.'
               : 'Chưa có bài kiểm tra nào được tạo.'}
           </h3>
-          <p className="text-xs text-[#5f708b] max-w-md mx-auto">
-            {role === 'student'
-              ? 'Vui lòng quay lại sau khi giảng viên hoàn tất thẩm định và xuất bản câu hỏi.'
-              : 'Chọn “Tạo câu hỏi từ bài giảng”, kiểm tra câu hỏi được gợi ý rồi xuất bản cho lớp.'}
-          </p>
+
+          {role === 'teacher' ? (
+            !isReviewed ? (
+              <div className="max-w-xl mx-auto bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs text-amber-950 space-y-2.5 text-left">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Quy trình bắt buộc trước khi tạo câu hỏi:</span>
+                </div>
+                <p className="leading-relaxed text-[#5f708b]">
+                  Hệ thống yêu cầu các khái niệm và bằng chứng phải được giảng viên <strong>kiểm tra và xác nhận (Review Gate)</strong> trước khi Tác nhân Đánh giá (Assessment Agent) tạo câu hỏi. Bài giảng này hiện chưa hoàn tất thẩm định (còn {pendingFindings.length} nội dung chờ duyệt).
+                </p>
+                <div className="pt-1 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('ai')}
+                    className="px-4 py-2 bg-[#2959ea] hover:bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                  >
+                    <span>Mở "AI hỗ trợ" để thẩm định nội dung</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  {bootstrap?.lectures.some(l => l.status === 'published' && l.id !== currentLectureId) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pub = bootstrap.lectures.find(l => l.status === 'published');
+                        if (pub) selectLecture(pub.id);
+                      }}
+                      className="px-3 py-2 bg-white border border-[#e1e7ef] hover:bg-slate-50 text-[#12213b] font-semibold rounded-xl text-xs cursor-pointer transition-colors"
+                    >
+                      Xem bài mẫu đã duyệt ({bootstrap.lectures.find(l => l.status === 'published')?.title})
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[#5f708b] max-w-md mx-auto">
+                Nội dung bài giảng đã được thẩm định. Chọn <strong>“Tạo câu hỏi từ bài giảng”</strong> ở góc trên bên phải, kiểm tra câu hỏi được gợi ý rồi xuất bản cho lớp.
+              </p>
+            )
+          ) : (
+            <p className="text-xs text-[#5f708b] max-w-md mx-auto">
+              Vui lòng quay lại sau khi giảng viên hoàn tất thẩm định và xuất bản câu hỏi.
+            </p>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-[#e1e7ef] p-5 sm:p-6 shadow-2xs space-y-5">

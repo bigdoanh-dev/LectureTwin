@@ -7,11 +7,12 @@ import { KnowledgeView } from './views/KnowledgeView';
 import { LectureTwinView } from './views/LectureTwinView';
 import { QuestionInsightsView } from './views/QuestionInsightsView';
 import { AssessmentView } from './views/AssessmentView';
-import { StudentLearnView } from './views/StudentLearnView';
-import { AdminView } from './views/AdminView';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 
 const ExecutionCenterView = lazy(() => import('./views/ExecutionCenterView').then(module => ({ default: module.ExecutionCenterView })));
+const StudentLearnView = lazy(() => import('./views/StudentLearnView').then(module => ({ default: module.StudentLearnView })));
+const AdminView = lazy(() => import('./views/AdminView').then(module => ({ default: module.AdminView })));
+const AiWorkspaceView = lazy(() => import('./views/AiWorkspaceView').then(module => ({ default: module.AiWorkspaceView })));
 
 function AppContent() {
   const {
@@ -48,7 +49,7 @@ function AppContent() {
     return <LoginView />;
   }
 
-  const isAdvancedView = ['agents', 'graph', 'twin'].includes(currentView);
+  const isAdvancedView = role !== 'admin' && ['agents', 'graph', 'twin'].includes(currentView);
 
   return (
     <div className="min-h-screen bg-[#f6f8fc] text-[#12213b] flex flex-col font-sans antialiased">
@@ -84,7 +85,7 @@ function AppContent() {
         )}
 
         {/* Loading gate in App: prevents any transient 'no source' / 'no analysis' flicker while fetching workspace */}
-        {loading && !workspace ? (
+        {role !== 'admin' && loading && !workspace ? (
           <div className="space-y-6 max-w-[1440px] mx-auto pb-12 animate-pulse">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
               <div className="space-y-2">
@@ -105,17 +106,24 @@ function AppContent() {
         ) : (
           <>
             {/* View Routing */}
-            {['ai','questions','simulation'].includes(currentView) && role==='teacher' && <QuestionInsightsView key={workspace?.lecture.id} />}
+            {currentView === 'ai' && role === 'teacher' && <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang mở không gian bài giảng…</p>}><AiWorkspaceView key={workspace?.lecture.id} /></Suspense>}
+            {['questions','simulation'].includes(currentView) && role==='teacher' && <QuestionInsightsView key={workspace?.lecture.id} />}
             {currentView === 'lectures' && <LecturesView />}
             {currentView === 'assessment' && <AssessmentView />}
 
             {/* Shared Student / Tutor single mounted view instance */}
             {(currentView === 'student' || currentView === 'tutor') && (
-              <StudentLearnView focusTutor={currentView === 'tutor'} />
+              <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang tải không gian học tập…</p>}>
+                <StudentLearnView focusTutor={currentView === 'tutor'} />
+              </Suspense>
             )}
 
-            {currentView === 'admin' && <AdminView />}
-            {currentView === 'agents' && <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang mở chi tiết xử lý…</p>}><ExecutionCenterView /></Suspense>}
+            {role === 'admin' && ['admin', 'agents'].includes(currentView) && (
+              <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang tải không gian quản trị…</p>}>
+                <AdminView section={currentView === 'agents' ? 'operations' : 'accounts'} />
+              </Suspense>
+            )}
+            {currentView === 'agents' && role !== 'admin' && <Suspense fallback={<p role="status" className="py-8 text-center text-sm text-slate-500">Đang mở chi tiết xử lý…</p>}><ExecutionCenterView /></Suspense>}
             {currentView === 'graph' && <KnowledgeView />}
             {currentView === 'twin' && <LectureTwinView />}
           </>

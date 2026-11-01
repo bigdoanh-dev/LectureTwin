@@ -5,37 +5,14 @@ import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
 import { AnalysisProgress } from '../components/AnalysisProgress';
+import { KnowledgeMap } from '../components/KnowledgeMap';
 import { api } from '../api';
 import { analysisControl, formatEvidenceLabel, formatTimestamp, lessonWorkflow } from '../presentation';
-import type { ConceptEdge, ConceptNode, Evidence, LectureResearch, ResearchObjective } from '../types';
+import type { Evidence, LectureResearch, ResearchObjective } from '../types';
 
 const primary = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#2959ea] px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2';
 const secondary = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500';
 const card = 'rounded-2xl border border-[#e1e7ef] bg-white shadow-sm';
-
-function ConceptGraph({nodes, edges, selected, onSelect}: {nodes: ConceptNode[]; edges: ConceptEdge[]; selected: string | null; onSelect: (id: string) => void}) {
-  const xMin=Math.min(...nodes.map(n=>n.x)); const xSpan=Math.max(...nodes.map(n=>n.x))-xMin || 1;
-  const yMin=Math.min(...nodes.map(n=>n.y)); const ySpan=Math.max(...nodes.map(n=>n.y))-yMin || 1;
-  const points = new Map(nodes.map((n, i) => [n.id, {x: Number.isFinite(n.x) ? (nodes.length===1?320:110 + (n.x - xMin) / xSpan * 420) : 110 + (i % 3) * 210, y: Number.isFinite(n.y) ? 60 + (n.y - yMin) / ySpan * 370 : 60 + Math.floor(i / 3) * 140}]));
-  return <div className="overflow-x-auto rounded-xl bg-[#f8faff] p-1">
-    <svg viewBox="0 0 640 490" className="w-full min-w-[410px] max-h-[370px]" aria-label="Bản đồ khái niệm trong học liệu">
-      <defs><marker id="concept-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="#9baec8" strokeWidth="1.3" /></marker></defs>
-      {edges.map(edge => {
-        const a = points.get(edge.source); const b = points.get(edge.target); if (!a || !b) return null;
-        const dx = b.x-a.x; const dy=b.y-a.y; const length=Math.hypot(dx,dy) || 1;
-        const trim = Math.min(88 / (Math.abs(dx)/length || .001), 26 / (Math.abs(dy)/length || .001));
-        const x=(a.x+b.x)/2, y=(a.y+b.y)/2;
-        return <g key={edge.id}><line x1={a.x+dx/length*trim} y1={a.y+dy/length*trim} x2={b.x-dx/length*(trim+3)} y2={b.y-dy/length*(trim+3)} stroke="#a4b5ce" strokeWidth="1.6" markerEnd="url(#concept-arrow)"/><rect x={x-43} y={y-10} width="86" height="21" rx="5" fill="#f8faff"/><text x={x} y={y+4} textAnchor="middle" fill="#667a97" fontSize="12">{edge.label}</text></g>;
-      })}
-      {nodes.map(n => {const pos=points.get(n.id)!; const active=selected===n.id;
-        return <g key={n.id} role="button" tabIndex={0} aria-label={`Xem khái niệm ${n.label}`} aria-pressed={active} onClick={()=>onSelect(n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}}} className="cursor-pointer outline-none [&:focus-visible_rect]:stroke-blue-600 [&:focus-visible_rect]:stroke-[3]">
-          <rect x={pos.x-88} y={pos.y-26} width="176" height="52" rx="13" fill={active?'#2959ea':'#ffffff'} stroke={active?'#2959ea':n.verified?'#a8d8cb':'#d2ddee'} strokeWidth="1.5"/>
-          <text x={pos.x} y={pos.y+5} textAnchor="middle" fontSize="14" fontWeight="600" fill={active?'white':'#20334f'}>{n.label.length>25?n.label.slice(0,23)+'…':n.label}</text>
-        </g>;
-      })}
-    </svg>
-  </div>;
-}
 
 function ObjectiveRow({objective, research, canEdit, lectureId, refresh}: {objective: ResearchObjective; research: LectureResearch; canEdit: boolean; lectureId: string; refresh: () => Promise<void>}) {
   const [editing,setEditing]=useState(false); const [expected,setExpected]=useState(objective.expected_concept_ids);
@@ -110,7 +87,7 @@ export function ResearchWorkspaceView({embedded=false,onConceptSelect,focusConce
       </section>}
       <section className={`${card} min-w-0 space-y-4 p-5 ${embedded?'lg:col-span-12':'lg:col-span-7'}`} aria-labelledby="concept-panel-title">
         <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 id="concept-panel-title" className="flex items-center gap-2 text-base font-bold"><Network className="h-4 w-4 text-blue-600"/>Bản đồ kiến thức</h2><p className="mt-1 text-xs leading-relaxed text-slate-500">Chọn một khái niệm để mở đúng đoạn nguồn.</p></div><span className="rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-500">{concepts.length} khái niệm</span></div>
-        {concepts.length?<><ConceptGraph nodes={concepts} edges={workspace?.edges || []} selected={selected?.id || null} onSelect={selectConcept}/>
+        {concepts.length?<><KnowledgeMap key={currentLectureId} concepts={concepts} edges={workspace?.edges || []} selectedConceptId={selected?.id || null} onSelectConcept={selectConcept} isTeacherView={role==='teacher'}/>
           <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400"/><input aria-label="Tìm khái niệm" placeholder="Tìm BFS, DFS, hàng đợi…" value={query} onChange={e=>setQuery(e.target.value)} className="min-h-[44px] w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm"/></div><div className="flex flex-wrap gap-2">{matches.map(c=><button key={c.id} onClick={()=>selectConcept(c.id)} className={`min-h-[44px] rounded-lg border px-3 text-sm ${selected?.id===c.id?'border-blue-300 bg-blue-50 text-blue-700':'border-slate-200 text-slate-600'}`}>{c.label}</button>)}{matches.length===0&&<p className="text-sm text-slate-500">Không có khái niệm khớp tìm kiếm.</p>}</div>
           {selected&&<div className="space-y-3 border-t border-slate-100 pt-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">{selected.label}</h3><span className={`text-xs ${selected.verified?'text-emerald-700':'text-amber-700'}`}>{selected.verified?'Nguồn đã duyệt':'Chờ kiểm tra nguồn'}</span></div><p className="text-sm text-slate-500">{selected.description}</p><div className="flex flex-wrap gap-2">{sources.map(e=><button key={e.id} className={secondary} onClick={()=>selectEvidence(e)}><Clock className="h-3.5 w-3.5"/>{formatEvidenceLabel(e)}</button>)}</div><p className="text-xs leading-relaxed text-slate-500">{fact?.objective_ids.length?`Liên kết đã duyệt: ${fact.objective_ids.map(id=>id.toUpperCase()).join(', ')}`:'Chưa xác nhận kiến thức này đáp ứng mục tiêu nào.'} · {fact?.question_ids.length || 0} câu hỏi liên quan · {fact?.quiz.total?`${fact.quiz.correct}/${fact.quiz.total} câu trả lời đúng`:'Chưa có bài nộp cho kiến thức này'}</p></div>}
           <div className="border-t border-slate-100 pt-3"><h4 className="mb-2 text-sm font-semibold">Câu hỏi gắn với {selected?.label}</h4>{relatedQuestions.length?<ul className="space-y-2 text-sm text-slate-500">{relatedQuestions.map((q,i)=><li key={`${q.id}-${i}`}>{q.text}</li>)}</ul>:<p className="text-xs leading-relaxed text-slate-500">Chưa có câu hỏi cho kiến thức này trong phiên bản hiện tại.</p>}<button className="mt-2 inline-flex min-h-[44px] items-center gap-2 text-sm font-semibold text-blue-600" onClick={()=>setCurrentView('assessment')}>{role==='teacher'?'Soạn và kiểm tra câu hỏi':'Mở bài kiểm tra'}<ArrowRight className="h-4 w-4"/></button></div>

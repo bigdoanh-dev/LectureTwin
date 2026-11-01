@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 import hashlib
 import json
+import mimetypes
 import os
 import shutil
 from urllib.parse import urlsplit
@@ -14,7 +15,7 @@ from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Response, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
-from . import store, domain, workflows, research, question_insights
+from . import store, domain, workflows, research, question_insights, ai_runtime
 from .auth import current_user, require_role, lecture_access, public_user, password_valid, password_hash, issue, DEMO_MODE
 from .fixtures import seed, sample_sources, new_lecture, AGENTS, PROVIDER_NOTE, SAMPLE_DATA_REVISION
 
@@ -87,7 +88,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title='LectureTwin-AI Demo API', version='0.1.0', lifespan=lifespan)
+app = FastAPI(title='LectureTwin-AI API', version='0.2.0', lifespan=lifespan)
 LOGIN_ATTEMPTS = {}
 
 
@@ -104,7 +105,24 @@ async def origin_guard(request, call_next):
 
 @app.get('/api/health')
 def health():
-    return {'service': 'LectureTwin-AI', 'status': 'healthy', 'mode': 'DEMO_FALLBACK', 'provider_note': PROVIDER_NOTE}
+    config = ai_runtime.configuration()
+    return {'service': 'LectureTwin-AI', 'status': 'healthy', 'mode': config['mode'], 'provider_note': config['note']}
+
+
+@app.get('/api/ai/status')
+def ai_status(user=Depends(current_user)):
+    return ai_runtime.configuration()
+
+
+def upload_limit():
+    return 4 if os.environ.get('VERCEL') else max(1, min(1024, int(os.environ.get('LECTURE_UPLOAD_LIMIT_MB', '256'))))
+
+
+def model_metrics(jobs):
+    agents = [agent for job in jobs for agent in job.get('agents', [])]
+    measured = [agent['tokens'] for agent in agents if agent.get('tokens') is not None]
+    return {'model_calls': sum(agent.get('model_calls', 0) for agent in agents),
+            'tokens': sum(measured) if measured else None}
 
 
 class Login(BaseModel):
@@ -165,10 +183,11 @@ def bootstrap(user=Depends(current_user)):
     courses = [c for c in store.items('courses') if user['role'] == 'admin' or c['id'] in user['course_ids']]
     jobs = store.items('jobs')
     if user['role'] != 'admin': jobs = [j for j in jobs if j['owner_id'] == user['id']]
-    return {'user': public_user(user), 'mode': 'DEMO_FALLBACK', 'provider_note': PROVIDER_NOTE, 'courses': courses, 'lectures': lectures,
-        'upload_limit_mb': 4 if os.environ.get('VERCEL') else 25,
-        'agents': AGENTS, 'system': {'active_jobs': sum(j['status'] in ('queued', 'running', 'paused', 'needs_review') for j in jobs),
-        'completed_jobs': sum(j['status'] == 'completed' for j in jobs), 'failed_jobs': sum(j['status'] == 'failed' for j in jobs), 'model_calls': 0, 'tokens': None}}
+    config = ai_runtime.configuration()
+    return {'user': public_user(user), 'mode': config['mode'], 'provider_note': config['note'], 'ai': config, 'courses': courses, 'lectures': lectures,
+        'upload_limit_mb': upload_limit(),
+        'agents': ai_runtime.agent_registry(), 'system': {'active_jobs': sum(j['status'] in ('queued', 'running', 'paused', 'needs_review') for j in jobs),
+        'completed_jobs': sum(j['status'] == 'completed' for j in jobs), 'failed_jobs': sum(j['status'] == 'failed' for j in jobs), **model_metrics(jobs)}}
 
 
 class LectureCreate(BaseModel):
@@ -221,7 +240,7 @@ def video(lid: str, user=Depends(current_user)):
     if not asset: raise HTTPException(404, 'Chưa có video')
     path = store.DATA / 'media' / Path(asset['path']).name
     if not store.restore_media(path): raise HTTPException(404, 'Không tìm thấy tệp video')
-    return FileResponse(path, media_type='video/mp4', headers={'Cache-Control': 'private, no-store'})
+    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or 'video/mp4', headers={'Cache-Control': 'private, no-store'})
 
 
 def parse_transcript(path, duration):
@@ -238,8 +257,9 @@ def parse_transcript(path, duration):
             return result
         for match in re.finditer(pattern, text): rows.append({'start': seconds(match[1]), 'end': seconds(match[2]), 'text': match[3]})
     if not rows: raise ValueError('Cần transcript JSON hoặc WebVTT có timestamp; tệp văn bản thuần không có mốc thời gian chưa được hỗ trợ')
+    if len(rows) > 2000: raise ValueError('Phụ đề vượt 2000 đoạn; chia nguồn thành các bài nhỏ hơn thay vì bỏ bớt nội dung.')
     result = []
-    for i, row in enumerate(rows[:2000]):
+    for i, row in enumerate(rows):
         start, end = float(row['start']), float(row['end'])
         if not 0 <= start < end or (duration and end > duration + .1): raise ValueError('Timestamp transcript vượt thời lượng hoặc không hợp lệ')
         text = str(row['text']).strip()
@@ -253,9 +273,9 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     lecture = lecture_access(user, lid, edit=True)
     ensure_editable(lecture)
     suffix = Path(file.filename or '').suffix.lower()
-    allowed = {'video': {'.mp4'}, 'slides': {'.pdf', '.pptx'}, 'transcript': {'.json', '.vtt', '.txt'}}
+    allowed = {'video': {'.mp4', '.mov', '.mkv', '.webm'}, 'slides': {'.pdf', '.pptx', '.docx', '.txt', '.md'}, 'transcript': {'.json', '.vtt', '.txt'}}
     if kind not in allowed or suffix not in allowed[kind]: raise HTTPException(422, 'Định dạng không được hỗ trợ cho loại học liệu này')
-    limit_mb = 4 if os.environ.get('VERCEL') else 25
+    limit_mb = upload_limit()
     payload = await file.read(limit_mb * 1024 * 1024 + 1)
     if len(payload) > limit_mb * 1024 * 1024: raise HTTPException(413, f'Giới hạn tệp demo là {limit_mb} MB')
     if not payload: raise HTTPException(422, 'Tệp rỗng')
@@ -289,14 +309,35 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
                 from pypdf import PdfReader
                 reader = PdfReader(path)
                 if len(reader.pages) > 100: raise ValueError('Tối đa 100 trang cho bản demo')
-                lecture['slides'] = [{'page': i + 1, 'title': f'Trang {i+1}', 'text': (page.extract_text() or '')[:12000], 'start': None, 'end': None} for i, page in enumerate(reader.pages)]
+                lecture['slides'] = [{'page': i + 1, 'title': f'Trang {i+1}', 'text': page.extract_text() or '', 'start': None, 'end': None} for i, page in enumerate(reader.pages)]
+            elif suffix in ('.txt', '.md'):
+                text = path.read_text(encoding='utf-8-sig')
+                if len(text) > 500000: raise ValueError('Tài liệu văn bản vượt 500.000 ký tự')
+                lecture['slides'] = [{'page': i + 1, 'title': f'Phần {i+1}', 'text': text[i * 10000:(i+1) * 10000], 'start': None, 'end': None}
+                    for i in range((len(text) + 9999) // 10000)]
             else:
                 with zipfile.ZipFile(path) as archive:
-                    names = sorted([n for n in archive.namelist() if re.fullmatch(r'ppt/slides/slide\d+\.xml', n)], key=lambda n: int(re.search(r'slide(\d+)', n)[1]))
-                    if len(names) > 100 or sum(x.file_size for x in archive.infolist()) > 50 * 1024 * 1024: raise ValueError('Slide vượt giới hạn xử lý của demo')
-                    lecture['slides'] = [{'page': i + 1, 'title': f'Slide {i+1}', 'text': ' '.join(e.text or '' for e in ET.fromstring(archive.read(name)).iter() if e.tag.endswith('}t'))[:12000], 'start': None, 'end': None} for i, name in enumerate(names)]
+                    if sum(x.file_size for x in archive.infolist()) > 50 * 1024 * 1024: raise ValueError('Tài liệu vượt giới hạn giải nén 50 MB')
+                    if suffix == '.docx':
+                        names = ['word/document.xml']
+                    else:
+                        names = sorted([n for n in archive.namelist() if re.fullmatch(r'ppt/slides/slide\d+\.xml', n)], key=lambda n: int(re.search(r'slide(\d+)', n)[1]))
+                    if len(names) > 100: raise ValueError('Tối đa 100 trang')
+                    lecture['slides'] = []
+                    for name in names:
+                        text = ' '.join(e.text or '' for e in ET.fromstring(archive.read(name)).iter() if e.tag.endswith('}t'))
+                        for offset in range(0, len(text) or 1, 12000):
+                            lecture['slides'].append({'page': len(lecture['slides']) + 1, 'title': Path(name).name,
+                                'text': text[offset:offset + 12000], 'start': None, 'end': None})
             lecture['sample_attached'] = False
-            asset['notes'] += ' Trích xuất văn bản; chưa OCR trang ảnh và chưa căn chỉnh timestamp tự động.'
+            if sum(len(page['text']) for page in lecture['slides']) > 500000:
+                raise ValueError('Tài liệu vượt 500.000 ký tự; chia thành các bài nhỏ hơn để xử lý đầy đủ.')
+            for page in lecture['slides']:
+                page.update(asset_id=aid, source_type='document_parser')
+                if suffix in ('.docx', '.txt', '.md'):
+                    page['section_index'] = page['page']
+            asset['url'] = f'/api/lectures/{lid}/assets/{aid}'
+            asset['notes'] += ' Văn bản được đọc từ tệp; OCR trang ảnh chạy trong bước phân tích khi bật AI local. Số trang không phải mốc video.'
     except Exception as error:
         path.unlink(missing_ok=True)
         raise HTTPException(422, f'Không đọc được học liệu: {error}') from error
@@ -305,9 +346,22 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     lecture['version'] += 1
     lecture['planned'] = {'objectives': deepcopy(lecture['objectives']), 'total_minutes': lecture['total_minutes'], 'segments': [], 'origin': 'awaiting_source_review'}
     lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[], coverage=[], guided_demo=False)
+    for key in ('knowledge_method', 'source_segments', 'extraction_report', 'media_report'):
+        lecture.pop(key, None)
     domain.snapshot(lecture, 'asset_uploaded', f'Tải {kind}; chờ phân tích nguồn mới')
     store.audit(user, 'UPLOAD_ASSET', {'asset_id': aid, 'kind': kind}, lid)
     return domain.workspace(lecture, user)
+
+
+@app.get('/api/lectures/{lid}/assets/{aid}')
+def download_asset(lid: str, aid: str, user=Depends(current_user)):
+    lecture = lecture_access(user, lid)
+    data = lecture.get('published_payload', {}) if user['role'] == 'student' else lecture
+    asset = next((a for a in data.get('assets', []) if a['id'] == aid), None)
+    if not asset or not asset.get('path'): raise HTTPException(404, 'Không tìm thấy tài liệu')
+    path = store.DATA / 'media' / Path(asset['path']).name
+    if not store.restore_media(path): raise HTTPException(404, 'Tệp không còn trong kho dữ liệu')
+    return FileResponse(path, filename=asset['name'], headers={'Cache-Control': 'private, no-store'})
 
 
 class AnalysisRequest(BaseModel):
@@ -318,6 +372,8 @@ class AnalysisRequest(BaseModel):
 def analyze(lid: str, body: AnalysisRequest = AnalysisRequest(), user=Depends(current_user)):
     lecture = lecture_access(user, lid, edit=True)
     if not lecture['assets']: raise HTTPException(409, 'Cần video hoặc slide/transcript trước khi phân tích')
+    if ai_runtime.enabled() and store.CLOUD:
+        raise HTTPException(409, 'AI xử lý video cần backend và worker chạy lâu dài; bản serverless chỉ hỗ trợ minh họa.')
     return workflows.create_job(user, lecture, 'analysis', {'guided': body.guided or bool(lecture.get('guided_demo'))})
 
 
@@ -388,14 +444,22 @@ def after_review(lecture):
         ensure_reviewable(lecture)
         finding = next((f for f in lecture['findings'] if f['concept_id'] == concept['id']), None)
         concept['verified'] = bool(finding and finding['status'] == 'confirmed')
+    for edge in lecture.get('edges', []):
+        finding = next((f for f in lecture['findings'] if f.get('edge_id') == edge['id']), None)
+        if finding:
+            verified_nodes = {c['id'] for c in lecture['concepts'] if c.get('verified')}
+            edge['verified'] = finding['status'] == 'confirmed' and {edge['source'], edge['target']} <= verified_nodes
     for evidence in lecture['evidence']:
-        evidence['verified'] = bool(evidence['valid'] and any(c['id'] == evidence['concept_id'] and c['verified'] for c in lecture['concepts']))
+        concept_verified = any(c['id'] == evidence['concept_id'] and c['verified'] for c in lecture['concepts'])
+        edge_verified = not evidence.get('edge_id') or any(e['id'] == evidence['edge_id'] and e.get('verified') for e in lecture.get('edges', []))
+        evidence['verified'] = bool(evidence['valid'] and concept_verified and edge_verified)
     # Rejected concepts are excluded from the publishable graph, rather than silently affirmed.
     rejected = {f['concept_id'] for f in lecture['findings'] if f['status'] == 'rejected'}
     if not any(f['status'] == 'pending' for f in lecture['findings']):
         lecture['concepts'] = [c for c in lecture['concepts'] if c['id'] not in rejected]
         ids = {c['id'] for c in lecture['concepts']}
-        lecture['edges'] = [e for e in lecture['edges'] if e['source'] in ids and e['target'] in ids]
+        rejected_edges = {f['edge_id'] for f in lecture['findings'] if f.get('edge_id') and f['status'] == 'rejected'}
+        lecture['edges'] = [e for e in lecture['edges'] if e['source'] in ids and e['target'] in ids and e['id'] not in rejected_edges]
         if not lecture.get('sample_attached'):
             domain.plan_from_verified_source(lecture)
     domain.snapshot(lecture, 'teacher_review', 'Giảng viên quyết định đối với bằng chứng, giữ nguyên dấu vết nội dung bị loại')
@@ -428,6 +492,8 @@ def review_finding(lid: str, fid: str, body: Decision, user=Depends(current_user
         if not finding: raise HTTPException(404, 'Không tìm thấy nội dung cần xác minh')
         if finding['status'] != 'pending': raise HTTPException(409, 'Nội dung này đã được quyết định')
         if body.decision == 'confirm' and not finding['has_evidence']: raise HTTPException(422, 'Chưa có bằng chứng hợp lệ; hãy loại khỏi bản xuất bản hoặc bổ sung nguồn')
+        if body.decision == 'confirm' and finding.get('requires_individual_review') and len(body.note.strip()) < 3:
+            raise HTTPException(422, 'AI đã gắn cờ nhận định này; giảng viên cần ghi nhận xét đối chiếu nguồn trước khi xác nhận riêng.')
         if body.decision == 'reject' and len(body.note.strip()) < 3: raise HTTPException(422, 'Cần ghi lý do loại nội dung')
         finding.update(status='confirmed' if body.decision == 'confirm' else 'rejected', note=body.note.strip(), reviewed_by=user['id'])
         after_review(lecture)
@@ -448,7 +514,8 @@ def bulk_review(lid: str, body: BulkReview, user=Depends(current_user)):
         if len(body.note.strip()) < 3: raise HTTPException(422, 'Cần ghi nhận xét cụ thể cho quyết định kiểm duyệt')
         if not lecture['findings']: raise HTTPException(409, 'Chưa có kết quả phân tích')
         for finding in lecture['findings']:
-            if finding['status'] == 'pending': finding.update(status='confirmed' if finding['has_evidence'] else 'rejected', note=body.note, reviewed_by=user['id'])
+            if finding['status'] == 'pending' and not finding.get('requires_individual_review'):
+                finding.update(status='confirmed' if finding['has_evidence'] else 'rejected', note=body.note, reviewed_by=user['id'])
         after_review(lecture)
         store.audit(user, 'BULK_REVIEW', body.note, lid)
     return domain.workspace(lecture, user)
@@ -466,7 +533,7 @@ def publish(lid: str, user=Depends(current_user)):
 @app.get('/api/lectures/{lid}/graph')
 def graph(lid: str, q: str = '', user=Depends(current_user)):
     lecture = lecture_access(user, lid)
-    data = lecture.get('published_payload', {}) if user['role'] == 'student' else lecture
+    data = domain.student_lecture(lecture) if user['role'] == 'student' else lecture
     nodes = data.get('concepts', [])
     if q.strip(): nodes = [c for c in nodes if q.lower() in (c['label'] + ' ' + c['description']).lower()]
     ids = {c['id'] for c in nodes}
@@ -490,8 +557,9 @@ def tutor(lid: str, body: TutorQuestion, user=Depends(current_user)):
 def generate_assessment(lid: str, user=Depends(current_user)):
     lecture = lecture_access(user, lid, edit=True)
     domain.ensure_reviewed_source(lecture)
-    try: domain.create_questions(lecture)
-    except ValueError as error: raise HTTPException(422, str(error)) from error
+    if not (ai_runtime.enabled() and lecture.get('knowledge_method') == 'local_llm'):
+        try: domain.create_questions(lecture)
+        except ValueError as error: raise HTTPException(422, str(error)) from error
     return workflows.create_job(user, lecture, 'assessment')
 
 
@@ -737,11 +805,11 @@ def admin_monitoring(user=Depends(current_user)):
     require_role(user, 'admin')
     jobs = store.items('jobs')
     agents = [a for j in jobs for a in j['agents']]
-    return {'jobs': [domain.redacted_job(j) for j in reversed(jobs)], 'audit': list(reversed(store.items('audit')[-100:])), 'agents': AGENTS,
+    return {'jobs': [domain.redacted_job(j) for j in reversed(jobs)], 'audit': list(reversed(store.items('audit')[-100:])), 'agents': ai_runtime.agent_registry(),
         'metrics': {'active_jobs': sum(j['status'] in ('queued', 'running', 'paused', 'needs_review') for j in jobs),
             'completed_jobs': sum(j['status'] == 'completed' for j in jobs), 'failed_jobs': sum(j['status'] == 'failed' for j in jobs),
-            'model_calls': 0, 'tokens': None, 'tool_calls': sum(len(a['tools']) for a in agents), 'total_latency_ms': round(sum(a['duration_ms'] for a in agents), 1)},
-        'provider_note': PROVIDER_NOTE}
+            **model_metrics(jobs), 'tool_calls': sum(len(a['tools']) for a in agents), 'total_latency_ms': round(sum(a['duration_ms'] for a in agents), 1)},
+        'provider_note': ai_runtime.configuration()['note']}
 
 
 @app.get('/api/lectures/{lid}/frames/{filename}')

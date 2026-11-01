@@ -54,7 +54,7 @@ AGENTS = [
      'input_schema': {'lecture_id': 'string', 'sources': 'array'}, 'output_schema': {'result': 'object', 'evidence_ids': 'array'}}
     for key, name, desc, tools in [
         ('orchestrator', 'Orchestrator', 'Điều phối workflow, lưu trạng thái và kiểm tra quyền.', ['dispatch_workflow', 'persist_handoff']),
-        ('perception', 'Perception', 'Đọc nguồn, metadata video, slide và chú giải đã chuẩn bị.', ['probe_video', 'extract_audio', 'read_sources']),
+        ('perception', 'Perception', 'Đọc nguồn, metadata video, slide và chú giải đã chuẩn bị.', ['probe_video', 'extract_audio', 'read_sources', 'transcribe_audio', 'ocr_document', 'ocr_frame']),
         ('knowledge', 'Knowledge', 'Trích xuất theo từ khóa và truy vấn liên kết có nguồn.', ['extract_concepts', 'query_evidence']),
         ('verification', 'Verification', 'Kiểm tra timestamp, nguồn và điều kiện xuất bản.', ['validate_evidence', 'validate_constraints']),
         ('pedagogical', 'Pedagogical', 'Đối chiếu mục tiêu với khái niệm đã xác nhận.', ['map_objectives', 'learning_analytics']),

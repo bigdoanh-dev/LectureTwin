@@ -11,9 +11,9 @@ def normalized(text):
     return ''.join(c for c in unicodedata.normalize('NFD', text.lower().replace('đ', 'd')) if unicodedata.category(c) != 'Mn')
 
 
-def expected_concepts(title):
+def expected_concepts(title, concepts=None):
     text = normalized(title)
-    return [c['id'] for c in CATALOG if any(
+    return [c['id'] for c in (concepts if concepts is not None else CATALOG) if any(
         re.search(r'(?<!\w)' + re.escape(normalized(word)) + r'(?!\w)', text)
         for word in [c['label'], *c.get('keywords', [])])]
 
@@ -51,7 +51,7 @@ def view(lecture, user):
         oid = f'clo-{index}'
         saved = lecture.get('objective_mappings', {}).get(oid, {})
         same_source = saved.get('version') == version and saved.get('title') == title
-        expected = saved['expected_concept_ids'] if same_source else expected_concepts(title)
+        expected = saved['expected_concept_ids'] if same_source else expected_concepts(title, concepts if lecture.get('knowledge_method') == 'local_llm' else None)
         confirmed = saved.get('concept_ids', []) if same_source else []
         reviewed = same_source and lecture.get('analysis_version') == version and set(confirmed) <= verified
         ids = [cid for cid in expected if cid in found]
@@ -65,7 +65,7 @@ def view(lecture, user):
                 'title': f'{oid.upper()} cần giảng viên đối chiếu',
                 'description': 'Liên kết theo từ khóa mới là gợi ý, chưa xác nhận mức đạt chuẩn đầu ra.'})
         for cid in missing:
-            label = next(c['label'] for c in CATALOG if c['id'] == cid)
+            label = next((c['label'] for c in concepts + CATALOG if c['id'] == cid), cid)
             signals.append({'id': f'missing-{oid}-{cid}', 'kind': 'missing_source', 'concept_id': cid, 'objective_id': oid,
                 'title': f'Chưa tìm thấy nguồn cho {label}',
                 'description': 'Trong dữ liệu đã xử lý chưa có dẫn chứng. Kiểm tra video hoặc bổ sung học liệu; chưa kết luận bài giảng bỏ sót nội dung.'})
@@ -103,7 +103,7 @@ def view(lecture, user):
     return {'source_version': version, 'source_processed': source_processed,
         'sample_notes_outdated': bool(lecture.get('sample_attached') and lecture.get('sample_data_revision') != SAMPLE_DATA_REVISION),
         'mode': 'rule_based', 'objectives': objectives, 'concepts': rows,
-        'signals': signals, 'concept_catalog': [{'id': c['id'], 'label': c['label']} for c in CATALOG],
-        'limitations': ['Đang dùng từ khóa và công cụ xác định; chưa có mô hình ASR, OCR hoặc hiểu hình.',
+        'signals': signals, 'concept_catalog': [{'id': c['id'], 'label': c['label']} for c in (concepts if lecture.get('knowledge_method') == 'local_llm' else CATALOG)],
+        'limitations': [('AI local tạo đề xuất có trích đoạn nguồn; giảng viên kiểm tra cả khái niệm và quan hệ.' if lecture.get('knowledge_method') == 'local_llm' else 'Đang dùng từ khóa và công cụ xác định; chưa có mô hình ASR, OCR hoặc hiểu hình.'),
             'Khoảng nguồn có chứa từ khóa, không phải thời lượng giảng thuần cho một khái niệm.',
             'Giảng viên xác nhận liên kết CLO; hệ thống chưa chứng nhận người học đạt CLO.']}

@@ -7,7 +7,7 @@ import shutil
 import time
 from pathlib import Path
 from pydantic import BaseModel, Field
-from . import store, domain, research
+from . import store, domain, research, ai_runtime, knowledge_ai, perception_ai
 from .fixtures import AGENTS, CONCEPTS, EDGES
 
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='lecture-agent')
@@ -31,6 +31,15 @@ class Cancelled(Exception):
     pass
 
 
+class Paused(Exception):
+    pass
+
+
+def check_running(job_id):
+    if boundary(job_id):
+        raise Paused()
+
+
 def save_job(job):
     store.put('jobs', job)
 
@@ -49,6 +58,15 @@ def run_tool(agent, name, data, function):
     started = time.perf_counter()
     call = {'name': name, 'input': data, 'status': 'running', 'output': None, 'duration_ms': 0}
     agent['tools'].append(call)
+    def persist_trace():
+        if not agent.get('job_id'):
+            return
+        with store.LOCK:
+            current = store.get('jobs', agent['job_id'])
+            if current:
+                current['agents'] = [deepcopy(agent) if item['id'] == agent['id'] else item for item in current['agents']]
+                save_job(current)
+    persist_trace()
     try:
         output = function()
         call.update(status='completed', output=output)
@@ -58,6 +76,7 @@ def run_tool(agent, name, data, function):
         raise
     finally:
         call['duration_ms'] = round((time.perf_counter() - started) * 1000, 2)
+        persist_trace()
 
 
 def media_probe(lecture):
@@ -86,7 +105,8 @@ def media_probe(lecture):
     folder = store.DATA / 'frames' / lecture['id']
     folder.mkdir(parents=True, exist_ok=True)
     frames = []
-    for index, position in enumerate([0, min(10, duration / 3), min(24, duration * .6)]):
+    positions = [duration * i / 12 for i in range(12)] if ai_runtime.enabled() else [0, min(10, duration / 3), min(24, duration * .6)]
+    for index, position in enumerate(positions):
         output = folder / f'v{lecture["version"]}-{index}.jpg'
         subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(position), '-i', str(path), '-frames:v', '1', '-vf', 'scale=640:-2', str(output)], capture_output=True, timeout=20, check=True)
         frames.append({'timestamp': round(position, 2), 'file': output.name, 'url': f"/api/lectures/{lecture['id']}/frames/{output.name}"})
@@ -105,16 +125,18 @@ def perceive(lecture, agent):
             folder.mkdir(parents=True, exist_ok=True)
             output = folder / f"v{lecture['version']}.wav"
             subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(store.DATA / 'media' / video['path']),
-                '-vn', '-ac', '1', '-ar', '16000', str(output)], capture_output=True, timeout=30, check=True)
+                '-vn', '-ac', '1', '-ar', '16000', str(output)], capture_output=True, timeout=180, check=True)
             return {'status': 'extracted', 'bytes': output.stat().st_size, 'sample_rate': 16000, 'asr': 'unavailable', 'note': 'Trích xuất âm thanh không phải nhận dạng lời nói.'}
         report['audio'] = run_tool(agent, 'extract_audio', {}, audio)
     report.update(run_tool(agent, 'read_sources', {}, lambda: {'transcript_segments': len(lecture['transcript']), 'slide_pages': len(lecture['slides']),
         'source_label': 'Video YouTube tham khảo' if lecture.get('sample_attached') else 'Học liệu đã tải lên',
         'transcript_note': 'Các mốc là ghi chú tiếng Việt biên soạn từ phụ đề tự động tiếng Anh.' if lecture.get('sample_attached') else 'Văn bản do giảng viên cung cấp hoặc trích từ tài liệu.'}))
-    return report
+    return perception_ai.read_sources(lecture, report, lambda name, data, function: run_tool(agent, name, data, function))
 
 
 def extract_knowledge(lecture):
+    if ai_runtime.enabled() and not lecture.get('sample_attached'):
+        return knowledge_ai.extract_graph(lecture)
     source_asset = next((a for a in lecture.get('assets', []) if a.get('source_type') == 'youtube_reference'), None)
     duration = source_asset.get('duration_seconds', 0) if source_asset else next((a.get('duration_seconds', 0) for a in lecture['assets'] if a['kind'] == 'video'), 0)
     evidence, concepts = [], []
@@ -149,11 +171,26 @@ def extract_knowledge(lecture):
 
 def verify_lecture(lecture):
     findings = []
+    checks = knowledge_ai.verify_claims(lecture) if lecture.get('knowledge_method') == 'local_llm' else {}
     for concept in lecture['concepts']:
         valid = [e for e in lecture['evidence'] if e['concept_id'] == concept['id'] and e['valid']]
         findings.append({'id': f"finding-{concept['id']}", 'concept_id': concept['id'], 'title': f"{concept['label']}: {'có nguồn để xác nhận' if valid else 'thiếu bằng chứng hợp lệ'}",
             'description': 'Giảng viên cần kiểm tra nội dung và nguồn trước khi xác nhận.', 'severity': 'info' if valid else 'warning',
             'has_evidence': bool(valid), 'source_ids': [e['id'] for e in valid], 'status': 'pending', 'note': ''})
+    if lecture.get('knowledge_method') == 'local_llm':
+        for edge in lecture.get('edges', []):
+            valid = [e for e in lecture['evidence'] if e['id'] in edge.get('evidence_ids', []) and e['valid']]
+            findings.append({'id': 'finding-' + edge['id'], 'concept_id': None, 'edge_id': edge['id'],
+                'title': f"Quan hệ: {edge['label']}", 'description': 'Đã đối chiếu đoạn trích với nguồn. Giảng viên cần xác nhận ý nghĩa của quan hệ; trùng đoạn trích chưa chứng minh quan hệ đúng.',
+                'severity': 'info' if valid else 'warning', 'has_evidence': bool(valid),
+                'source_ids': [e['id'] for e in valid], 'status': 'pending', 'note': ''})
+        for finding in findings:
+            check = checks.get(finding.get('edge_id') or finding.get('concept_id'))
+            if check:
+                finding['ai_verification'] = check
+                finding['description'] += ' AI đối chiếu: ' + check['reason']
+                if not check['supported']:
+                    finding.update(severity='warning', requires_individual_review=True)
     if lecture.get('sample_attached') and not any(c['id'] == 'complexity' for c in lecture['concepts']):
         findings.append({'id': 'finding-extension', 'concept_id': 'complexity', 'title': 'Nội dung mở rộng: chưa đủ nguồn về độ phức tạp',
             'description': 'Bộ mẫu chưa cung cấp bằng chứng cho phần này. Không đưa vào nội dung đã xác nhận nếu chưa bổ sung nguồn.',
@@ -178,21 +215,36 @@ def step(job, key, name, function, handoff=None):
     prior = next((a for a in current['agents'] if a['agent'] == key and a['status'] == 'completed'), None)
     if prior:
         return prior['output']
-    agent = {'id': store.uid('agent'), 'agent': key, 'status': 'running', 'started_at': store.now(), 'finished_at': None,
+    agent = {'id': store.uid('agent'), 'job_id': job['id'], 'agent': key, 'status': 'running', 'started_at': store.now(), 'finished_at': None,
         'duration_ms': 0, 'input': AgentInput(lecture_id=job['lecture_id'], version=job['input']['version'], task=job['input']).model_dump(),
         'output': {}, 'tools': [], 'handoff_to': handoff, 'model_calls': 0, 'tokens': None, 'error': None}
     current['agents'].append(agent)
     save_job(current)
     started = time.perf_counter()
+    usage = []
     try:
-        output = run_tool(agent, name, job['input'], lambda: function(agent))
-        validated = AgentOutput(agent=key, result=output, evidence_ids=output.get('evidence_ids', [])).model_dump()
+        with ai_runtime.track_usage(lambda: check_running(job['id'])) as usage:
+            output = run_tool(agent, name, job['input'], lambda: function(agent))
+        check_running(job['id'])
+        agent['model_calls'] = sum(event.get('model_call', True) for event in usage)
+        agent['model_usage'] = usage
+        measured = [event['tokens'] for event in usage if event.get('tokens') is not None]
+        agent['tokens'] = sum(measured) if measured else None
+        validated = AgentOutput(agent=key, result=output, evidence_ids=output.get('evidence_ids', []),
+            mode='local_ai' if usage else 'rule_based').model_dump()
         agent.update(status='completed', output=validated)
         return validated
+    except (Cancelled, Paused):
+        agent.update(status='cancelled', error='Tạm dừng hoặc hủy ở ranh giới bước xử lý.')
+        raise
     except Exception as error:
         agent.update(status='failed', error=str(error))
         raise
     finally:
+        agent['model_calls'] = sum(event.get('model_call', True) for event in usage)
+        agent['model_usage'] = usage
+        measured = [event['tokens'] for event in usage if event.get('tokens') is not None]
+        agent['tokens'] = sum(measured) if measured else None
         agent.update(finished_at=store.now(), duration_ms=round((time.perf_counter() - started) * 1000, 2))
         current = store.get('jobs', job['id'])
         current['agents'] = [agent if a['id'] == agent['id'] else a for a in current['agents']]
@@ -228,8 +280,8 @@ def execute(job_id):
         if lecture['version'] != job['input']['version'] and job['workflow'] != 'tutor':
             raise ValueError('Phiên bản bài giảng đã thay đổi; hãy khởi tạo workflow mới')
         if job['workflow'] == 'tutor':
-            lecture = deepcopy(lecture['published_payload']) if job['input']['role'] == 'student' else lecture
-        step(job, 'orchestrator', 'dispatch_workflow', lambda _: {'workflow': job['workflow'], 'version': job['input']['version'], 'mode': 'DEMO_FALLBACK'}, 'perception' if job['workflow'] == 'analysis' else 'knowledge')
+            lecture = domain.student_lecture(lecture) if job['input']['role'] == 'student' else lecture
+        step(job, 'orchestrator', 'dispatch_workflow', lambda _: {'workflow': job['workflow'], 'version': job['input']['version'], 'mode': ai_runtime.configuration()['mode']}, 'perception' if job['workflow'] == 'analysis' else 'knowledge')
         if boundary(job_id): return
         if job['workflow'] == 'analysis':
             completed_before = {a['agent'] for a in job['agents'] if a['status'] == 'completed'}
@@ -260,27 +312,37 @@ def execute(job_id):
                 current.update(status='needs_review', result={'findings': lecture['findings'], 'media_report': lecture.get('media_report')})
                 save_job(current)
                 return
-            result = step(job, 'pedagogical', 'map_objectives', lambda _: {'coverage': [{'objective': objective, 'evidence_concepts': [c['id'] for c in lecture['concepts'] if c['verified'] and c['id'] in research.expected_concepts(objective)],
+            result = step(job, 'pedagogical', 'map_objectives', lambda _: knowledge_ai.map_objectives(lecture) if lecture.get('knowledge_method') == 'local_llm' else {'coverage': [{'objective': objective, 'evidence_concepts': [c['id'] for c in lecture['concepts'] if c['verified'] and c['id'] in research.expected_concepts(objective)],
                 'status': 'needs_manual_mapping', 'note': 'Đối chiếu sơ bộ theo bộ từ khóa; giảng viên đánh giá mức độ phù hợp.'} for objective in lecture['objectives']]}, None)
             if boundary(job_id): return
             lecture = store.get('lectures', lecture['id'])
             lecture['coverage'] = result['result']['coverage']
             lecture['analysis_version'] = lecture['version']
             domain.snapshot(lecture, 'analysis_verified', 'Workflow đã qua cổng kiểm duyệt; sẵn sàng giảng viên xuất bản')
-            final = {'concept_count': len(lecture['concepts']), 'coverage': lecture['coverage'], 'partial': not lecture.get('sample_attached'), 'provider_note': 'Không có ASR/vision/LLM bên ngoài'}
+            final = {'concept_count': len(lecture['concepts']), 'coverage': lecture['coverage'],
+                'partial': bool(lecture.get('media_report', {}).get('processing_limitations')) or not lecture.get('concepts'),
+                'provider_note': ai_runtime.configuration()['note'], 'extraction_report': lecture.get('extraction_report')}
         elif job['workflow'] == 'tutor':
-            evidence_result = step(job, 'knowledge', 'query_evidence', lambda _: {'citations': knowledge_for_question(lecture, job['input']['question'])}, 'tutor')
+            def query(_):
+                if ai_runtime.enabled() and not lecture.get('sample_attached'):
+                    citations, retrieval = knowledge_ai.retrieve(lecture, job['input']['question'])
+                    return {'citations': citations, 'retrieval': retrieval}
+                return {'citations': knowledge_for_question(lecture, job['input']['question'])}
+            evidence_result = step(job, 'knowledge', 'query_evidence', query, 'tutor')
             if boundary(job_id): return
             citations = evidence_result['result']['citations']
-            answer = step(job, 'tutor', 'compose_grounded_answer', lambda _: {'answer': '\n'.join(e['text'] for e in citations) if citations else 'Chưa có nguồn đã xác minh phù hợp trong bài giảng. Mời bạn hỏi về BFS, DFS hoặc nhờ giảng viên bổ sung học liệu.',
+            answer = step(job, 'tutor', 'compose_grounded_answer', lambda _: knowledge_ai.answer(lecture, job['input']['question'], citations) if ai_runtime.enabled() and not lecture.get('sample_attached') else {'answer': '\n'.join(e['text'] for e in citations) if citations else 'Chưa có nguồn đã xác minh phù hợp trong bài giảng. Mời bạn hỏi về BFS, DFS hoặc nhờ giảng viên bổ sung học liệu.',
                 'citations': citations, 'limitation': 'Tổng hợp trích đoạn theo từ khóa, không phải câu trả lời từ LLM.'}, 'verification')
             if boundary(job_id): return
-            step(job, 'verification', 'validate_evidence', lambda _: {'valid_citations': all(e['verified'] and e['valid'] for e in citations), 'evidence_ids': [e['id'] for e in citations]}, None)
+            checked = step(job, 'verification', 'validate_evidence', lambda _: knowledge_ai.verify_answer(answer['result']) if ai_runtime.enabled() and not lecture.get('sample_attached') else {'valid_citations': all(e['verified'] and e['valid'] for e in citations), 'evidence_ids': [e['id'] for e in citations]}, None)
             final = answer['result']
+            if final.get('method') == 'local_rag' and not checked['result'].get('semantic_supported'):
+                final = {'answer': 'Chưa xác minh được câu trả lời bằng nguồn hiện có. Vui lòng hỏi giảng viên hoặc bổ sung học liệu.',
+                    'citations': [], 'limitation': 'Bộ kiểm chứng đã chặn câu trả lời chưa đủ căn cứ.', 'method': 'verification_abstention'}
         elif job['workflow'] == 'assessment':
             step(job, 'knowledge', 'query_evidence', lambda _: {'verified_concepts': [c['id'] for c in lecture['concepts'] if c.get('verified')]}, 'assessment')
             if boundary(job_id): return
-            generated = step(job, 'assessment', 'build_questions', lambda _: {'questions': domain.create_questions(lecture)}, 'verification')
+            generated = step(job, 'assessment', 'build_questions', lambda _: {'questions': knowledge_ai.generate_questions(lecture) if ai_runtime.enabled() and not lecture.get('sample_attached') else domain.create_questions(lecture)}, 'verification')
             if boundary(job_id): return
             questions = generated['result']['questions']
             step(job, 'verification', 'validate_evidence', lambda _: {'valid': all(q['evidence_id'] in {e['id'] for e in lecture['evidence'] if e['verified']} for q in questions), 'question_count': len(questions)}, None)
@@ -303,7 +365,7 @@ def execute(job_id):
         current = store.get('jobs', job_id)
         current.update(status='completed', progress=100, finished_at=store.now(), result=final)
         save_job(current)
-    except Cancelled:
+    except (Cancelled, Paused):
         pass
     except Exception as error:
         current = store.get('jobs', job_id)

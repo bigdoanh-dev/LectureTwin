@@ -15,6 +15,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { ReviewModal } from '../components/ReviewModal';
+import { KnowledgeMap } from '../components/KnowledgeMap';
 import { api } from '../api';
 import { Evidence } from '../types';
 import { formatTimestamp, formatEvidenceLabel } from '../presentation';
@@ -155,6 +156,20 @@ export const KnowledgeView: React.FC = () => {
           className="w-full bg-white border border-[#e1e7ef] rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-[#12213b] focus:outline-hidden focus:ring-2 focus:ring-[#2959ea] shadow-2xs min-h-[44px]"
         />
       </div>
+
+      <KnowledgeMap
+        key={currentLectureId}
+        concepts={concepts}
+        edges={workspace?.edges || []}
+        selectedConceptId={activeConceptId || null}
+        isTeacherView={true}
+        onSelectConcept={id => {
+          setSelectedConceptId(id);
+          setEditingConcept(false);
+          const concept = concepts.find(item => item.id === id);
+          setSelectedEvidence(evidences.find(item => concept?.evidence_ids?.includes(item.id) || item.concept_id === id) || null);
+        }}
+      />
 
       {/* 2-Column: Knowledge Nodes List & Video/Evidence Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

@@ -40,7 +40,7 @@ export interface AgentDefinition {
   tools: string[];
   input_schema?: any;
   output_schema?: any;
-  mode: 'rule_based';
+  mode: 'rule_based' | 'local_ai';
 }
 
 export interface SystemMetrics {
@@ -54,9 +54,10 @@ export interface SystemMetrics {
 }
 
 export interface BootstrapData {
+  ai?: AIConfiguration;
   upload_limit_mb?: number;
   user: User;
-  mode: 'DEMO_FALLBACK';
+  mode: 'DEMO_FALLBACK' | 'LOCAL_AI';
   provider_note: string;
   courses: Course[];
   lectures: LectureSummary[];
@@ -65,6 +66,11 @@ export interface BootstrapData {
 }
 
 export interface Evidence {
+  section_index?: number | null;
+  asset_id?: string | null;
+  source_segment_id?: string;
+  source_version?: number;
+  edge_id?: string;
   id: string;
   concept_id: string;
   kind: 'transcript' | 'slide' | 'video';
@@ -81,6 +87,9 @@ export interface Evidence {
 }
 
 export interface Finding {
+  edge_id?: string;
+  requires_individual_review?: boolean;
+  ai_verification?: { supported: boolean; reason: string };
   id: string;
   concept_id: string;
   title: string;
@@ -157,6 +166,8 @@ export interface ConceptNode {
 }
 
 export interface ConceptEdge {
+  verified?: boolean;
+  evidence_ids?: string[];
   id: string;
   source: string;
   target: string;
@@ -250,6 +261,9 @@ export interface StudentProgress {
 }
 
 export interface Workspace {
+  ai?: AIConfiguration;
+  extraction_report?: {source_segments: number; processed_segments: number; rejected_unsupported: number; model: string; semantic_review: string} | null;
+  media_report?: {asr?: string; asr_model?: string; vision?: string; processing_limitations?: string[]} | null;
   research?: LectureResearch;
   capabilities?: { can_generate_assessment: boolean };
   lecture: LectureSummary;
@@ -279,6 +293,7 @@ export interface Workspace {
     source_type: string;
   }>;
   slides: Array<{
+    section_index?: number;
     page: number;
     title: string;
     text: string;
@@ -294,6 +309,14 @@ export interface Workspace {
   assessments: Assessment[];
   scenarios: Scenario[];
   progress: StudentProgress;
+}
+
+export interface AIConfiguration {
+  provider: 'ollama' | 'disabled';
+  mode: 'DEMO_FALLBACK' | 'LOCAL_AI';
+  llm_model: string | null;
+  embedding_model: string | null;
+  note: string;
 }
 
 export interface ResearchObjective {
