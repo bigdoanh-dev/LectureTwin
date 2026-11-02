@@ -101,7 +101,7 @@ def verify_claims(lecture):
     labels = {c['id']: c['label'] for c in lecture.get('concepts', [])}
     claims = [{'id': c['id'], 'claim': c['label'] + ': ' + c['description'],
         'quotes': [evidence[eid]['text'] for eid in c['evidence_ids'] if eid in evidence]} for c in lecture['concepts']]
-    claims += [{'id': e['id'], 'claim': f"{labels.get(e['source'])} --{e['label']}--> {labels.get(e['target'])}",
+    claims += [{'id': e['id'], 'claim': f"{labels.get(e['source'])} --{e['type']}: {e['label']}--> {labels.get(e['target'])}",
         'quotes': [evidence[eid]['text'] for eid in e.get('evidence_ids', []) if eid in evidence]} for e in lecture['edges']]
     checks = {}
     def check_batch(batch):
@@ -192,7 +192,7 @@ def supported(reference, sources):
         return None
     if reference.quote in source['text']:
         return {**source, 'matched_quote': reference.quote, 'quote_validation': 'exact_quote_match'}
-    code = bool(re.search(r'[=<>+*/{}\[\]()]|\w\.\w', source['text'] + reference.quote))
+    code = bool(re.search(r'[=<>+*/{}\[\]()]|\w\.\w', source['text'] + ' ' + reference.quote))
     wanted, _ = quote_projection(reference.quote, code)
     actual, offsets = quote_projection(source['text'], code)
     if len(wanted) < 12:
@@ -216,6 +216,7 @@ def extract_graph(lecture):
         raise ValueError(f'Nguồn có {len(rows)} đoạn, vượt giới hạn xử lý {maximum}; chia học liệu thành các bài nhỏ hơn. Chưa tạo kết quả từ một phần nguồn.')
     concepts, edges, evidence, label_keys = {}, {}, {}, {}
     rejected = 0
+    low_information = 0
     batches = []
     grouped = []
     current_batch = []
@@ -237,7 +238,10 @@ def extract_graph(lecture):
         result = ai_runtime.generate(GraphBatch,
             'Extract a concise knowledge graph of the computing lesson in SOURCES. '
             'Use at most 5 concepts and 4 relations per batch if supported; no predefined BFS/DFS vocabulary. '
-            'Be concise: descriptions under 120 characters and quotes under 160 characters. '
+            'Descriptions must explain the supported role or meaning in a complete Vietnamese phrase; never echo the label. '
+            'Ignore IDE menus, autocompletion and documentation popups unless the spoken lesson teaches them. '
+            'Do not infer data types from corrupted ASR syllables; require a clear source or corroborating code. '
+            'Be concise: descriptions under 180 characters and quotes under 160 characters. '
             'Each concept AND each relation needs an exact verbatim quote and source_id from SOURCES. '
             'Reuse existing_concept_id from KNOWN_CONCEPTS only for exactly the same entity, including true naming aliases. '
             'Do not merge broader, narrower or merely related concepts. '
@@ -247,6 +251,9 @@ def extract_graph(lecture):
             'Use canonical concept names and stable short keys. Do not infer prerequisite order unless explicit. '
             'If sources have no educational facts, return empty arrays.', {'sources': batch, 'known_concepts': [{'id': c['id'], 'label': c['label'], 'description': c['description']} for c in concepts.values()]})
         for node in result.concepts:
+            if normalized(node.description) == normalized(node.label) or len(node.description.split()) < 3:
+                low_information += 1
+                continue
             refs = [(ref, supported(ref, sources)) for ref in node.references]
             refs = [(ref, source) for ref, source in refs if source]
             if not refs:
@@ -318,7 +325,7 @@ def extract_graph(lecture):
     lecture.update(concepts=list(concepts.values()), edges=list(edges.values()), evidence=list(evidence.values()),
         knowledge_method='local_llm', source_segments=rows,
         extraction_report={'source_segments': len(rows), 'processed_segments': len(rows), 'rejected_unsupported': rejected,
-            'batches': batches, 'relation_passes': 2 if len(grouped) > 1 else 1, 'entity_resolution': 'accumulated_ids_and_explicit_aliases_pending_teacher', 'model': ai_runtime.model_name(), 'semantic_review': 'pending_teacher'})
+            'rejected_low_information': low_information, 'batches': batches, 'relation_passes': 2 if len(grouped) > 1 else 1, 'entity_resolution': 'accumulated_ids_and_explicit_aliases_pending_teacher', 'model': ai_runtime.model_name(), 'semantic_review': 'pending_teacher'})
     ai_runtime.checkpoint()
     with store.LOCK:
         current = store.get('lectures', lecture['id'])
@@ -375,24 +382,33 @@ def retrieve(lecture, question):
             any(e['concept_id'] in (edge['source'], edge['target']) for e in chosen)]}
 
 
-def answer(lecture, question, citations):
+def answer(lecture, question, citations, teaching_context=None):
     if not citations:
         return {'answer': 'Chưa có nguồn đã duyệt phù hợp để trả lời. Vui lòng bổ sung học liệu hoặc hỏi giảng viên.',
                 'citations': [], 'limitation': 'Không có nguồn được phép sử dụng.', 'method': 'source_abstention'}
+    context = teaching_context or {}
+    cited_concepts = {e['concept_id'] for e in citations}
+    strategies = [s for s in context.get('strategies', []) if s['concept_id'] in cited_concepts]
+    context = {**context, 'strategies': strategies, 'concept_ids': sorted({s['concept_id'] for s in strategies})} if strategies else {}
     response = ai_runtime.generate(TutorAnswer,
         'Answer QUESTION using only EVIDENCE. Cite only supplied evidence IDs. '
         'Answer in Vietnamese in at most 3 concise sentences; use only details in the supplied quotes. '
         'Do not add a long preface, general lecture, or unsupported step. '
         'If evidence does not support an answer, set insufficient_source=true and explain the missing information. '
-        'Do not claim that the presence of a citation proves factual correctness.',
-        {'question': question, 'evidence': [{'id': e['id'], 'text': e['text']} for e in citations]}, max_tokens=768)
+        'Do not claim that the presence of a citation proves factual correctness. '
+        'If TEACHING_CONTEXT includes an approved review strategy for a concept in this evidence, '
+        'give a concise source-based explanation first, followed by a short practice suggestion. '
+        'Do not discuss scores, other learners, diagnoses or ability. Keep the answer focused on QUESTION.',
+        {'question': question, 'evidence': [{'id': e['id'], 'text': e['text']} for e in citations],
+         'teaching_context': context}, max_tokens=768)
     allowed = {e['id']: e for e in citations}
     if response.insufficient_source or not response.evidence_ids or any(eid not in allowed for eid in response.evidence_ids):
         return {'answer': 'Nguồn hiện tại chưa đủ để trả lời câu hỏi này một cách có căn cứ. Vui lòng hỏi giảng viên hoặc bổ sung tài liệu.',
             'citations': [], 'limitation': 'Từ chối trả lời vì thiếu nguồn hoặc mã dẫn chứng không hợp lệ.', 'method': 'source_abstention'}
     return {'answer': response.answer, 'citations': [allowed[eid] for eid in dict.fromkeys(response.evidence_ids)],
         'limitation': 'AI sinh từ nguồn đã duyệt; kiểm tra dẫn chứng và phản hồi giảng viên nếu có sai sót.',
-        'method': 'local_rag', 'model': ai_runtime.model_name()}
+        'method': 'local_rag', 'model': ai_runtime.model_name(),
+        'teaching_context': context or None}
 
 
 def generate_questions(lecture):

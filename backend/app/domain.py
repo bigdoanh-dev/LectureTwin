@@ -44,7 +44,7 @@ def analytics(lid, user=None, version=None):
 
 
 def publication_payload(lecture):
-    return deepcopy({key: value for key, value in lecture.items() if key != 'published_payload'})
+    return deepcopy({key: value for key, value in lecture.items() if key not in {'published_payload', 'key_points', 'agent_collaboration'}})
 
 
 def student_lecture(lecture):
@@ -59,11 +59,13 @@ def student_lecture(lecture):
     data['evidence'] = [e for e in data.get('evidence', []) if e.get('valid') and e.get('verified')
         and e['concept_id'] in ids and (not e.get('edge_id') or e['edge_id'] in edge_ids)]
     data['findings'] = []
+    data.pop('key_points', None)
+    data.pop('agent_collaboration', None)
     return data
 
 
 def workspace(lecture, user):
-    from . import research, ai_runtime
+    from . import research, ai_runtime, learner_twin
     if user['role'] == 'student':
         data = student_lecture(lecture)
         data['status'] = 'published'
@@ -92,10 +94,13 @@ def workspace(lecture, user):
     if ai_runtime.enabled() and data.get('knowledge_method') == 'local_llm':
         assessment_ready = data.get('analysis_version') == data['version'] and any(e.get('valid') and e.get('verified') for e in data.get('evidence', []))
     return {'lecture': summary(data), 'planned': data['planned'], 'research': research.view(data, user), 'capabilities': {'can_generate_assessment': assessment_ready},
-        'ai': ai_runtime.configuration(), 'extraction_report': data.get('extraction_report'), 'media_report': data.get('media_report'),
+        'ai': ai_runtime.configuration(),
+        'agent_collaboration': data.get('agent_collaboration') if user['role'] == 'teacher' and (data.get('agent_collaboration') or {}).get('source_version') == data['version'] else None,
+        'key_points': data.get('key_points') if user['role'] == 'teacher' and (data.get('key_points') or {}).get('source_version') == data['version'] else None,
+        'extraction_report': data.get('extraction_report'), 'media_report': data.get('media_report'),
         **{k: data.get(k, []) for k in ('assets', 'transcript', 'slides', 'concepts', 'edges', 'evidence', 'findings')},
         'jobs': sorted(jobs, key=lambda j: j['created_at'], reverse=True), 'assessments': assessments, 'scenarios': scenarios,
-        'progress': progress, 'twin': {'planned': data['planned'], 'observed': {'concepts': len(data.get('concepts', [])),
+        'progress': progress, 'twin': {'learner': learner_twin.view(lecture, user), 'planned': data['planned'], 'observed': {'concepts': len(data.get('concepts', [])),
             'verified': sum(c.get('verified', False) for c in data.get('concepts', [])),
             'open_findings': sum(f['status'] == 'pending' for f in data.get('findings', [])),
             'source_mode': 'prepared_demo_fixture' if data.get('sample_attached') else data.get('knowledge_method', 'uploaded_partial'),

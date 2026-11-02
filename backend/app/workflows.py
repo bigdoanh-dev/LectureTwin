@@ -138,7 +138,20 @@ def perceive(lecture, agent):
 
 def extract_knowledge(lecture):
     if ai_runtime.enabled() and not lecture.get('sample_attached'):
-        return knowledge_ai.extract_graph(lecture)
+        result = knowledge_ai.extract_graph(lecture)
+        from . import key_points
+        try:
+            lecture['key_points'] = key_points.generate(lecture)
+        except (ai_runtime.ProviderUnavailable, ValueError) as error:
+            lecture['key_points'] = {'status': 'draft', 'source_version': lecture['version'], 'points': [],
+                'limitations': ['Chưa diễn đạt được ý chính có căn cứ: ' + str(error)]}
+        with store.LOCK:
+            current = store.get('lectures', lecture['id'])
+            if not current or current['version'] != lecture['version']:
+                raise ValueError('Nguồn đã đổi phiên bản; không lưu ý chính của nguồn cũ.')
+            current['key_points'] = lecture['key_points']
+            store.put('lectures', current)
+        return {**result, 'key_point_count': len(lecture['key_points']['points'])}
     source_asset = next((a for a in lecture.get('assets', []) if a.get('source_type') == 'youtube_reference'), None)
     duration = source_asset.get('duration_seconds', 0) if source_asset else next((a.get('duration_seconds', 0) for a in lecture['assets'] if a['kind'] == 'video'), 0)
     evidence, concepts = [], []
@@ -173,7 +186,8 @@ def extract_knowledge(lecture):
 
 def verify_lecture(lecture):
     findings = []
-    checks = knowledge_ai.verify_claims(lecture) if lecture.get('knowledge_method') == 'local_llm' else {}
+    from . import graph_collaboration
+    checks = graph_collaboration.run(lecture) if lecture.get('knowledge_method') == 'local_llm' else {}
     for concept in lecture['concepts']:
         valid = [e for e in lecture['evidence'] if e['concept_id'] == concept['id'] and e['valid']]
         findings.append({'id': f"finding-{concept['id']}", 'concept_id': concept['id'], 'title': f"{concept['label']}: {'có nguồn để xác nhận' if valid else 'thiếu bằng chứng hợp lệ'}",
@@ -281,7 +295,11 @@ def execute(job_id):
         lecture = store.get('lectures', job['lecture_id'])
         if lecture['version'] != job['input']['version'] and job['workflow'] != 'tutor':
             raise ValueError('Phiên bản bài giảng đã thay đổi; hãy khởi tạo workflow mới')
+        teaching_context = {}
         if job['workflow'] == 'tutor':
+            if job['input']['role'] == 'student':
+                from . import learner_twin
+                teaching_context = learner_twin.tutor_context(lecture, {'id': job['owner_id'], 'role': 'student'})
             lecture = domain.student_lecture(lecture) if job['input']['role'] == 'student' else lecture
         step(job, 'orchestrator', 'dispatch_workflow', lambda _: {'workflow': job['workflow'], 'version': job['input']['version'], 'mode': ai_runtime.configuration()['mode']}, 'perception' if job['workflow'] == 'analysis' else 'knowledge')
         if boundary(job_id): return
@@ -333,7 +351,7 @@ def execute(job_id):
             evidence_result = step(job, 'knowledge', 'query_evidence', query, 'tutor')
             if boundary(job_id): return
             citations = evidence_result['result']['citations']
-            answer = step(job, 'tutor', 'compose_grounded_answer', lambda _: knowledge_ai.answer(lecture, job['input']['question'], citations) if ai_runtime.enabled() and not lecture.get('sample_attached') else {'answer': '\n'.join(e['text'] for e in citations) if citations else 'Chưa có nguồn đã xác minh phù hợp trong bài giảng. Mời bạn hỏi về BFS, DFS hoặc nhờ giảng viên bổ sung học liệu.',
+            answer = step(job, 'tutor', 'compose_grounded_answer', lambda _: knowledge_ai.answer(lecture, job['input']['question'], citations, teaching_context) if ai_runtime.enabled() and not lecture.get('sample_attached') else {'answer': '\n'.join(e['text'] for e in citations) if citations else 'Chưa có nguồn đã xác minh phù hợp trong bài giảng. Mời bạn hỏi về BFS, DFS hoặc nhờ giảng viên bổ sung học liệu.',
                 'citations': citations, 'limitation': 'Tổng hợp trích đoạn theo từ khóa, không phải câu trả lời từ LLM.'}, 'verification')
             if boundary(job_id): return
             checked = step(job, 'verification', 'validate_evidence', lambda _: knowledge_ai.verify_answer(answer['result']) if ai_runtime.enabled() and not lecture.get('sample_attached') else {'valid_citations': all(e['verified'] and e['valid'] for e in citations), 'evidence_ids': [e['id'] for e in citations]}, None)

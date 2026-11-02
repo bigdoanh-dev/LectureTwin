@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 import pytest
-from app import ai_runtime, knowledge_ai, store, workflows
+from app import ai_runtime, knowledge_ai, store, workflows, key_points, graph_collaboration
 from .conftest import login
 
 SOURCE = 'Module là một tệp Python chứa các hàm. Lệnh import sử dụng các hàm trong module.'
@@ -9,6 +9,7 @@ SOURCE = 'Module là một tệp Python chứa các hàm. Lệnh import sử d�
 
 def local_ai(monkeypatch, flagged=False):
     monkeypatch.setenv('LECTURE_AI_PROVIDER', 'ollama')
+    monkeypatch.setattr(key_points, 'generate', lambda lecture: {'status': 'draft', 'source_version': lecture['version'], 'points': [], 'limitations': []})
     def generate(schema, task, data):
         if schema is knowledge_ai.GraphBatch:
             sid = data['sources'][0]['id']
@@ -21,6 +22,8 @@ def local_ai(monkeypatch, flagged=False):
             return schema.model_validate({'checks': [{'id': c['id'], 'supported': not flagged, 'reason': 'Đối chiếu nguồn thử nghiệm.'} for c in data['claims']]})
         if schema is knowledge_ai.ObjectiveMapping:
             return schema.model_validate({'links': [{'objective': obj, 'concept_ids': [], 'explanation': 'Cần giảng viên đối chiếu.'} for obj in data['objectives']]})
+        if schema is graph_collaboration.Revisions:
+            return schema(revisions=[])
         raise AssertionError(schema)
     monkeypatch.setattr(ai_runtime, 'generate', generate)
 

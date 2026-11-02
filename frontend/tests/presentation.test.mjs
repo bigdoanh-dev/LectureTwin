@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aiCapabilitySummary, buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, formatReviewReason, analysisControl, analysisProgress, guidedNextAction, uploadFileKind, workspaceSections } from '../src/presentation.ts';
+import { aiCapabilitySummary, availableLessonEvidence, currentCollaborationTraces, collaborationMessageLabel, collaborationRoleLabel, currentKeyPoints, keyPointDraftLabel, resolveLessonEvidence, buildLessonSummary, lessonWorkflow, formatEvidenceLabel, formatTimestamp, formatReviewReason, analysisControl, analysisProgress, guidedNextAction, uploadFileKind, workspaceSections } from '../src/presentation.ts';
 
 function workspace() {
   return { lecture: { version: 2, status: 'draft', published_version: 1, analysis_current: false },
@@ -74,6 +74,62 @@ test('AI capability summary describes orchestration and verification scope witho
   const separate=aiCapabilitySummary({mode:'LOCAL_AI',llm_model:'writer',verifier_model:'checker',verification_mode:'separate_model_check'});
   assert.match(separate,/mô hình kiểm chứng riêng checker/);
 });
+test('Only key-point drafts matching the current source version are shown', () => {
+  const w=workspace();
+  w.key_points={source_version:2,status:'draft',points:[{id:'p1',title:'A complete idea',explanation:'A concise explanation.',evidence:[]}],limitations:[]};
+  assert.equal(currentKeyPoints(w).points[0].id,'p1');
+  w.lecture.version=3;
+  assert.equal(currentKeyPoints(w),null);
+  w.lecture.version=2;w.key_points.status='published';
+  assert.equal(currentKeyPoints(w),null);
+});
+test('Key-point draft labels distinguish deterministic code observations from AI prose', () => {
+  const base={source_version:2,status:'draft',points:[],limitations:[]};
+  assert.match(keyPointDraftLabel(base),/Bản nháp AI/);
+  assert.match(keyPointDraftLabel({...base,points:[{id:'p',title:'Mã được dùng trong bài',explanation:'Một ghi nhận đầy đủ về mã.',evidence:[],method:'deterministic_python_code_observation'}]}),/cấu trúc mã/);
+});
+test('Evidence picker combines current graph and key-point sources and rejects stale or forged locations', () => {
+  const w=workspace();
+  w.assets=[{id:'video-1',kind:'video',duration_seconds:30}];
+  const evidence=(id, extra={})=>({id,concept_id:'topic',kind:'transcript',asset_id:'video-1',source_version:2,
+    start:2,end:5,text:`Source ${id}`,valid:true,verified:false,...extra});
+  const graph=evidence('graph-ev');
+  const point=evidence('point-ev');
+  w.evidence=[graph];
+  w.key_points={source_version:2,status:'draft',points:[{id:'p',title:'Topic',explanation:'A complete source grounded explanation.',evidence:[point]}],limitations:[]};
+  assert.deepEqual(availableLessonEvidence(w).map(item=>item.id),['graph-ev','point-ev']);
+  assert.equal(resolveLessonEvidence(w,'point-ev').text,'Source point-ev');
+  w.key_points.source_version=1;
+  assert.deepEqual(availableLessonEvidence(w).map(item=>item.id),['graph-ev']);
+  w.key_points.source_version=2;
+  w.key_points.points[0].evidence=[evidence('forged-asset',{asset_id:'not-in-lesson'}),
+    evidence('bad-time',{end:31}), evidence('bad-section',{section_index:99})];
+  assert.deepEqual(availableLessonEvidence(w).map(item=>item.id),['graph-ev']);
+  assert.equal(resolveLessonEvidence(w,'forged-asset'),null);
+  w.key_points.points[0].evidence=[evidence('partial-transcript',{start:3,end:null})];
+  assert.deepEqual(availableLessonEvidence(w).map(item=>item.id),['graph-ev']);
+});
+test('Legacy current-workspace graph evidence remains selectable without optional provenance fields', () => {
+  const w=workspace();
+  w.assets=[{id:'video-1',kind:'video',duration_seconds:30}];
+  w.evidence=[{id:'legacy',concept_id:'bfs',kind:'transcript',start:2,end:4,text:'A current server-provided sample citation.',valid:true,verified:false}];
+  assert.equal(availableLessonEvidence(w)[0].id,'legacy');
+  assert.equal(resolveLessonEvidence(w,'legacy').text,'A current server-provided sample citation.');
+  w.evidence[0].source_version=1;
+  assert.deepEqual(availableLessonEvidence(w),[]);
+});
+test('Collaboration trace view exposes only current saved role exchanges', () => {
+  const w=workspace();
+  const trace={protocol:'bounded_proposal_challenge_revision_v1',source_version:2,max_revision_rounds:1,revision_rounds:1,
+    generator_model:'local-model',verifier_model:'local-model',independent_models:false,teacher_review_required:true,
+    messages:[{id:'m1',sender:'knowledge',recipient:'verification',kind:'proposal',source_version:2,parent_id:null,created_at:'',payload:{private:'omitted'}}]};
+  w.agent_collaboration=trace;
+  assert.equal(currentCollaborationTraces(w)[0].trace.messages.length,1);
+  assert.equal(collaborationMessageLabel('review_required'),'Chuyển giảng viên đối chiếu');
+  assert.equal(collaborationRoleLabel('knowledge'),'Bước tạo');
+  w.agent_collaboration={...trace,source_version:1};
+  assert.deepEqual(currentCollaborationTraces(w),[]);
+});
 test('Analysis offers the next useful action instead of silently restarting a review gate', () => {
   assert.equal(analysisControl(null).action, 'start');
   assert.equal(analysisControl({status:'needs_review'}).action, 'review');
@@ -120,6 +176,7 @@ test('Slide-only sources never fabricate a zero-second citation', () => {
   assert.equal(formatTimestamp(null),'Không có mốc thời gian');
   assert.equal(formatEvidenceLabel({start:null,end:null,slide_page:3}),'Slide 3');
   assert.equal(formatEvidenceLabel({start:22,end:36}),'00:22 – 00:36');
+  assert.equal(formatEvidenceLabel({kind:'video',start:12.5,end:null}),'Khung hình 00:12');
 });
 
 test('A processed video with no extractable text remains blocked without pretending it was never processed', () => {

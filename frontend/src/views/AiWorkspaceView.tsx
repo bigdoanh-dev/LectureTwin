@@ -41,7 +41,14 @@ import {
   formatTimestamp,
   currentAssessments,
   workspaceSections,
-  aiCapabilitySummary
+  currentKeyPoints,
+  aiCapabilitySummary,
+  availableLessonEvidence,
+  resolveLessonEvidence,
+  currentCollaborationTraces,
+  collaborationMessageLabel,
+  collaborationRoleLabel,
+  keyPointDraftLabel
 } from '../presentation';
 import { Evidence, AssessmentQuestion, ScenarioComparison } from '../types';
 
@@ -67,6 +74,10 @@ export const AiWorkspaceView: React.FC = () => {
   const workflow = lessonWorkflow(workspace);
   const sections = workspaceSections(workspace);
   const summaryRows = sections.resultsReady ? buildLessonSummary(workspace) : [];
+  const keyPoints = currentKeyPoints(workspace);
+  const keyPointCards = (keyPoints?.points || []).filter(point => point.title.trim() && point.explanation.trim()).slice(0, 6);
+  const collaborationTraces = currentCollaborationTraces(workspace);
+  const collaborationMessageCount = collaborationTraces.reduce((count, item) => count + item.trace.messages.length, 0);
 
   // Local UI State
   const [activeTab, setActiveTab] = useState<'summary' | 'questions' | 'improve'>('summary');
@@ -76,6 +87,8 @@ export const AiWorkspaceView: React.FC = () => {
   const [isHowDemoWorksOpen, setIsHowDemoWorksOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [keyPointsLoading, setKeyPointsLoading] = useState(false);
+  const [keyPointsError, setKeyPointsError] = useState<string | null>(null);
 
   // Concept edit state
   const [editingConceptId, setEditingConceptId] = useState<string | null>(null);
@@ -97,6 +110,9 @@ export const AiWorkspaceView: React.FC = () => {
 
   const assessmentAbortRef = useRef<AbortController | null>(null);
   const simAbortRef = useRef<AbortController | null>(null);
+  const keyPointsRequestRef = useRef(0);
+  const selectedLessonRef = useRef({ lectureId: currentLectureId, version: workspace?.lecture.version });
+  selectedLessonRef.current = { lectureId: currentLectureId, version: workspace?.lecture.version };
   const reviewBtnRef = useRef<HTMLButtonElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -109,6 +125,9 @@ export const AiWorkspaceView: React.FC = () => {
     setEditingQuestionId(null);
     setSelectedAssessmentId('');
     setActionMessage(null);
+    setKeyPointsLoading(false);
+    setKeyPointsError(null);
+    keyPointsRequestRef.current++;
     setSimComparison(null);
     setSimError(null);
 
@@ -133,9 +152,38 @@ export const AiWorkspaceView: React.FC = () => {
     };
   }, [currentLectureId, workspace?.lecture.version]);
 
+  const handleGenerateKeyPoints = async () => {
+    const selected = selectedLessonRef.current;
+    if (!selected.lectureId || selected.version == null || keyPointsLoading) return;
+    const requestId = ++keyPointsRequestRef.current;
+    setKeyPointsLoading(true);
+    setKeyPointsError(null);
+    try {
+      const result = await api.generateKeyPoints(selected.lectureId);
+      const stillSelected = selectedLessonRef.current.lectureId === selected.lectureId &&
+        selectedLessonRef.current.version === selected.version && requestId === keyPointsRequestRef.current;
+      if (!stillSelected) return;
+      if (result.lecture.id !== selected.lectureId || result.lecture.version !== selected.version ||
+          result.key_points?.source_version !== selected.version) {
+        setKeyPointsError('Kết quả không khớp với phiên bản học liệu đang mở. Hãy tải lại học liệu rồi thử lại.');
+        return;
+      }
+      await refreshWorkspace();
+    } catch (error: any) {
+      const stillSelected = selectedLessonRef.current.lectureId === selected.lectureId &&
+        selectedLessonRef.current.version === selected.version && requestId === keyPointsRequestRef.current;
+      if (stillSelected) setKeyPointsError(error.detail || error.message || 'Chưa thể tạo ý chính từ học liệu này.');
+    } finally {
+      const stillSelected = selectedLessonRef.current.lectureId === selected.lectureId &&
+        selectedLessonRef.current.version === selected.version && requestId === keyPointsRequestRef.current;
+      if (stillSelected) setKeyPointsLoading(false);
+    }
+  };
+
   // Default first cited source
-  const defaultEvidence = summaryRows[0]?.evidence || workspace?.evidence?.find(e => e.valid) || null;
-  const currentEvidence = workspace?.evidence.find(evidence => evidence.id === selectedEvidence?.id) || defaultEvidence;
+  const lessonEvidence = availableLessonEvidence(workspace);
+  const defaultEvidence = lessonEvidence.find(evidence => evidence.id === summaryRows[0]?.evidence?.id) || lessonEvidence[0] || null;
+  const currentEvidence = resolveLessonEvidence(workspace, selectedEvidence?.id) || defaultEvidence;
 
   // Current assessments for active lecture version, newest first (Review line 36)
   const assessments = currentAssessments(workspace);
@@ -329,8 +377,8 @@ export const AiWorkspaceView: React.FC = () => {
 
   // Select citation & seek video
   const handleSelectEvidence = (ev: Evidence | null) => {
-    if (!ev) return;
-    const source = workspace?.evidence.find(item => item.id === ev.id && item.valid);
+    if (!ev?.id) return;
+    const source = resolveLessonEvidence(workspace, ev.id);
     if (!source) return;
     setSelectedEvidence(source);
     if (workspace?.assets.some(asset => asset.kind === 'video') && typeof source.start === 'number' && source.start >= 0) {
@@ -402,7 +450,10 @@ export const AiWorkspaceView: React.FC = () => {
       )}
 
       <LectureWorkflow key={currentLectureId} step={workflowStep} onStepChange={setWorkflowStep} onShowResults={() => { setActiveTab('summary'); document.getElementById('lecture-proposals-panel')?.scrollIntoView({ behavior: shouldReduceMotion ? 'instant' : 'smooth', block: 'start' }); }} onReview={() => setIsReviewModalOpen(true)} onPublish={handlePublishLecture} />
-      <button type="button" onClick={() => setCurrentView('questions')} className="min-h-[44px] text-sm font-semibold text-blue-700 hover:underline">Xem câu hỏi của lớp và điều chỉnh bài dạy</button>
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <button type="button" onClick={() => setCurrentView('questions')} className="min-h-[44px] text-sm font-semibold text-blue-700 hover:underline">Xem câu hỏi của lớp và điều chỉnh bài dạy</button>
+        <button type="button" onClick={() => setCurrentView('twin')} className="min-h-[44px] text-sm font-semibold text-blue-700 hover:underline">Theo dõi học tập và đề xuất dạy</button>
+      </div>
 
       {sections.hasUpload && Boolean(workspace?.concepts.length) && <KnowledgeMap
         key={`source-map-${currentLectureId}-${workspace?.lecture.version}`}
@@ -414,7 +465,7 @@ export const AiWorkspaceView: React.FC = () => {
         subtitle="Chọn một khái niệm để xem dẫn chứng. Các quan hệ được tạo từ nguồn và cần giảng viên kiểm tra."
         notice={workflow.reviewed || workflow.published ? 'Nội dung đã qua bước duyệt của giảng viên.' : 'Bản đề xuất chưa phát hành. Đoạn trích khớp nguồn chưa đồng nghĩa nhận định và quan hệ đã đúng.'}
         onSelectConcept={id => {
-          const evidence = workspace?.evidence.find(item => item.concept_id === id && item.valid);
+          const evidence = lessonEvidence.find(item => item.concept_id === id) || null;
           setSelectedEvidence(evidence || null);
           if (typeof evidence?.start === 'number') seekVideoTo(evidence.start);
         }}
@@ -560,11 +611,79 @@ export const AiWorkspaceView: React.FC = () => {
             <div className="space-y-4">
               {!sections.hasUpload && <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm leading-relaxed text-slate-600">Chưa có kết quả. Hãy tải tệp ở bước 1; hệ thống sẽ xử lý ở bước 2 và gửi đề xuất để bạn duyệt ở bước 3.</div>}
               {sections.hasUpload && !sections.resultsReady && <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-slate-600">{workflow.running ? 'Đang xử lý học liệu này. Các ý chính sẽ xuất hiện khi có kết quả từ lượt chạy.' : 'Chưa có kết quả cho phiên bản học liệu này. Tiếp tục ở bước 2 trong luồng phía trên.'}</div>}
-              {sections.resultsReady && !summaryRows.length && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Chưa tìm được ý chính có dẫn chứng trong tệp này. Xem mục cần bổ sung ở bước 3; hệ thống chưa thể tạo câu hỏi hoặc kế hoạch từ nguồn hiện có.</div>}
+              {sections.resultsReady && !workflow.running && (
+                <section aria-labelledby="teacher-key-points-title" className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 id="teacher-key-points-title" className="font-bold text-base text-[#12213b]">Ý chính từ học liệu</h3>
+                      <p className="mt-1 text-sm leading-relaxed text-slate-600">Các ý được trình bày thành nội dung ngắn có dẫn chứng để giảng viên đối chiếu.</p>
+                    </div>
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{keyPointDraftLabel(keyPoints)}</span>
+                  </div>
+                  {keyPointCards.length ? (
+                    <div className="space-y-3">
+                      {keyPointCards.map((point, index) => (
+                        <article key={point.id} className="rounded-lg border border-slate-200 bg-white p-3.5">
+                          <h4 className="font-semibold leading-relaxed text-[#12213b]">{index + 1}. {point.title}</h4>
+                          <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{point.explanation}</p>
+                          {point.method === 'deterministic_python_code_observation' && <p className="mt-1 text-xs leading-relaxed text-slate-500">Quan sát cấu trúc mã theo quy tắc; ý này không do mô hình ngôn ngữ tạo.</p>}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {point.evidence.map(evidence => {
+                              const usable = resolveLessonEvidence(workspace, evidence.id);
+                              return usable ? <button key={evidence.id} type="button" onClick={() => handleSelectEvidence(usable)} className="min-h-[40px] rounded-lg border border-blue-100 px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50">Xem dẫn chứng · {formatEvidenceLabel(usable)}</button> : null;
+                            })}
+                            {!point.evidence.some(evidence => lessonEvidence.some(item => item.id === evidence.id)) && <p className="text-xs text-amber-800">Chưa có dẫn chứng hợp lệ để mở cho ý này.</p>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900">
+                    <p>{keyPoints ? 'Chưa có ý chính hoàn chỉnh để trình bày từ phiên bản học liệu này.' : 'Chưa có bản nháp ý chính cho phiên bản học liệu này. Tạo ý chính để nhận nội dung được sinh từ học liệu đã đọc.'}</p>
+                    {keyPoints?.limitations.map((limitation, index) => <p key={index} className="mt-1">{limitation}</p>)}
+                  </div>}
+                  {keyPoints?.limitations.length ? <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-slate-600">{keyPoints.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul> : null}
+                  {keyPointsError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-relaxed text-red-800">{keyPointsError}</p>}
+                  <button type="button" onClick={() => void handleGenerateKeyPoints()} disabled={keyPointsLoading || workflow.running} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#2959ea] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                    {keyPointsLoading && <RefreshCw className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />}
+                    {keyPointsLoading ? 'Đang tạo ý chính…' : keyPoints ? 'Cập nhật ý chính' : 'Tạo lại ý chính từ học liệu'}
+                  </button>
+                </section>
+              )}
+              {collaborationTraces.length > 0 && (
+                <details className="rounded-xl border border-slate-200 bg-white px-4">
+                  <summary className="flex min-h-[48px] cursor-pointer items-center font-semibold text-sm text-[#12213b]">Trao đổi giữa bước tạo và kiểm chứng ({collaborationMessageCount})</summary>
+                  <div className="space-y-3 pb-4">
+                    <p className="text-xs leading-relaxed text-slate-600">Các bước trao đổi được điều phối theo quy trình có giới hạn. Chỉ hiển thị vai trò và loại trao đổi; nội dung suy luận nội bộ không được trình bày.</p>
+                    {collaborationTraces.map(({ label, trace }) => (
+                      <section key={`${label}-${trace.source_version}`} className="rounded-lg bg-slate-50 p-3">
+                        <h4 className="text-sm font-semibold text-[#12213b]">{label} · phiên bản {trace.source_version}</h4>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          {trace.independent_models
+                            ? `Mô hình tạo: ${trace.generator_model}; mô hình kiểm chứng: ${trace.verifier_model}.`
+                            : `Cùng mô hình ${trace.generator_model} tạo và kiểm chứng.`}
+                          {' '}Đã dùng {trace.revision_rounds}/{trace.max_revision_rounds} vòng chỉnh sửa tối đa.
+                          {trace.teacher_review_required ? ' Cần giảng viên đối chiếu.' : ''}
+                        </p>
+                        <ol className="mt-2 space-y-1.5">
+                          {trace.messages.map((message, index) => (
+                            <li key={message.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs leading-relaxed">
+                              <span className="font-medium text-slate-700">{index + 1}. {collaborationMessageLabel(message.kind)} · {collaborationRoleLabel(message.sender)} → {collaborationRoleLabel(message.recipient)}</span>
+                              <span className="text-slate-500">Phiên bản {message.source_version}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    ))}
+                  </div>
+                </details>
+              )}
               {/* Case E: Analyzed Rows matching Concept PNG layout (Review line 32 typography) */}
               {sections.resultsReady && summaryRows.length > 0 && !workflow.running && (
                 <div className="space-y-4">
-                  <div className="divide-y divide-[#e1e7ef]">
+                  <details className="rounded-xl border border-slate-200 bg-white px-4">
+                    <summary className="flex min-h-[48px] cursor-pointer items-center font-semibold text-sm text-[#12213b]">Thuật ngữ và mã được nhắc tới ({summaryRows.length})</summary>
+                    <p className="pb-3 text-xs leading-relaxed text-slate-500">Danh sách này giữ các thuật ngữ và mã được trích từ đồ thị nguồn; đây không phải phần tóm tắt bài học.</p>
+                    <div className="divide-y divide-[#e1e7ef]">
                     {summaryRows.map((row, idx) => (
                       <div
                         key={row.id}
@@ -657,7 +776,8 @@ export const AiWorkspaceView: React.FC = () => {
                         )}
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  </details>
 
                   {/* Amber Warning Box matching concept PNG */}
                   {workflow.unsupportedCount > 0 && workflow.canReview && (

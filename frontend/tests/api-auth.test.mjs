@@ -59,3 +59,32 @@ test('a failed network logout retains the session instead of pretending it was r
   assert.equal(api.getToken(), 'live-token');
   api.setToken(null);
 });
+
+test('key-point generation posts to the lecture endpoint and returns its workspace', async () => {
+  api.setToken('teacher-token');
+  let request;
+  const generated = { lecture: { id: 'lecture-7', version: 4 }, key_points: { source_version: 4, status: 'draft', points: [], limitations: [] } };
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return response(generated);
+  };
+  assert.deepEqual(await api.generateKeyPoints('lecture-7'), generated);
+  assert.equal(request.url, '/api/lectures/lecture-7/key-points');
+  assert.equal(request.options.method, 'POST');
+  assert.deepEqual(JSON.parse(request.options.body), {});
+  api.setToken(null);
+});
+
+test('teaching-proposal review posts the selected decision, note and observed state', async () => {
+  api.setToken('teacher-token');
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return response({ lecture: { id: 'lecture 8', version: 3 } });
+  };
+  await api.decideTeachingProposal('lecture 8', 'proposal-1', 'confirm', 'Đã đối chiếu với nguồn.', 'state-1');
+  assert.equal(request.url, '/api/lectures/lecture%208/teaching-proposals/proposal-1/decision');
+  assert.equal(request.options.method, 'POST');
+  assert.deepEqual(JSON.parse(request.options.body), { decision: 'confirm', note: 'Đã đối chiếu với nguồn.', state_id: 'state-1' });
+  api.setToken(null);
+});

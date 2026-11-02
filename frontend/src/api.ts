@@ -168,6 +168,20 @@ class ApiService {
     return this.request<Workspace>(`/lectures/${lectureId}`);
   }
 
+  async decideTeachingProposal(lectureId: string, proposalId: string, decision: 'confirm' | 'reject', note: string, stateId: string): Promise<Workspace> {
+    return this.request<Workspace>(`/lectures/${encodeURIComponent(lectureId)}/teaching-proposals/${encodeURIComponent(proposalId)}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note, state_id: stateId }),
+    });
+  }
+
+  async generateKeyPoints(lectureId: string): Promise<Workspace> {
+    return this.request<Workspace>(`/lectures/${lectureId}/key-points`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
   async attachSample(lectureId: string): Promise<Workspace> {
     return this.request<Workspace>(`/lectures/${lectureId}/sample`, {
       method: 'POST',

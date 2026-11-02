@@ -86,6 +86,46 @@ export interface Evidence {
   valid: boolean;
 }
 
+export interface KeyPoint {
+  id: string;
+  title: string;
+  explanation: string;
+  evidence: Evidence[];
+  method?: string;
+}
+
+export interface KeyPointsDraft {
+  source_version: number;
+  status: 'draft';
+  points: KeyPoint[];
+  limitations: string[];
+  collaboration?: AgentCollaborationTrace | null;
+  method?: string;
+}
+
+export interface AgentCollaborationMessage {
+  id: string;
+  sender: string;
+  recipient: string;
+  kind: string;
+  source_version: number;
+  parent_id: string | null;
+  created_at: string;
+  payload: unknown;
+}
+
+export interface AgentCollaborationTrace {
+  protocol: string;
+  source_version: number;
+  max_revision_rounds: number;
+  revision_rounds: number;
+  generator_model: string;
+  verifier_model: string;
+  independent_models: boolean;
+  teacher_review_required: boolean;
+  messages: AgentCollaborationMessage[];
+}
+
 export interface Finding {
   edge_id?: string;
   requires_individual_review?: boolean;
@@ -252,6 +292,66 @@ export interface LectureTwinData {
     count: number;
   };
   snapshots: TwinSnapshot[];
+  learner?: LearnerTwinState;
+}
+
+export interface LearnerTwinObserved {
+  attempt_count: number;
+  repeat_attempt_count: number;
+  historical_answer_count: number;
+  latest_answer_count: number;
+  correct: number;
+  incorrect: number;
+  unique_learners: number;
+  last_observation_at: string | null;
+}
+
+export interface LearnerConceptObservation {
+  concept_id: string;
+  label: string;
+  state: 'no_observations' | 'observed_errors' | 'observed_correct_answers';
+  latest_total: number;
+  latest_correct: number;
+  latest_incorrect: number;
+  observed_learners: number;
+  question_count: number;
+  evidence_ids: string[];
+}
+
+export interface LearnerAdaptiveProposal {
+  id: string;
+  status: 'draft';
+  based_on_state_id: string;
+  source_version: number;
+  concept_id: string;
+  title: string;
+  reason: string;
+  action: 'review_source_then_targeted_practice';
+  evidence_ids: string[];
+  assessment_question_refs?: Array<{ assessment_id: string; question_id: string }>;
+  supporting_attempt_ids?: string[];
+  teacher_review_required: true;
+  auto_apply: false;
+  requires_rebase: boolean;
+}
+
+export interface LearnerTwinState {
+  state_id: string | null;
+  source_version: number | null;
+  current_draft_version: number;
+  scope: 'self' | 'class' | 'unavailable';
+  status: 'observed' | 'insufficient_data' | 'unavailable';
+  reason: string | null;
+  requires_rebase?: boolean;
+  observed: LearnerTwinObserved;
+  concept_observations: LearnerConceptObservation[];
+  adaptive_proposals: LearnerAdaptiveProposal[];
+  audit_rows?: Array<{ attempt_id: string; assessment_id: string; question_id: string; concept_id: string; evidence_id: string; source_version: number; correct: boolean; submitted_at: string }>;
+  audit_omitted_rows?: number;
+  teacher_review_required?: boolean;
+  auto_apply?: boolean;
+  reviewed_proposals?: Array<{ proposal_id: string; decision: 'confirm' | 'reject'; note?: string; state_id?: string }>;
+  approved_strategy?: Array<{ proposal_id?: string; concept_id?: string; title?: string; status?: string }>;
 }
 
 export interface StudentProgress {
@@ -262,6 +362,8 @@ export interface StudentProgress {
 
 export interface Workspace {
   ai?: AIConfiguration;
+  key_points?: KeyPointsDraft | null;
+  agent_collaboration?: AgentCollaborationTrace | null;
   extraction_report?: {source_segments: number; processed_segments: number; rejected_unsupported: number; model: string; semantic_review: string} | null;
   media_report?: {asr?: string; asr_model?: string; vision?: string; processing_limitations?: string[]} | null;
   research?: LectureResearch;

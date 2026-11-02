@@ -292,7 +292,9 @@ def configuration():
         'embedding_model': os.environ.get('LECTURE_EMBEDDING_MODEL', 'bge-m3') if enabled() else None,
         'verifier_model': verifier_name() if enabled() else None,
         'verification_mode': ('same_model_check' if verifier_name() == model_name() else 'separate_model_check') if enabled() else 'rule_based',
-        'coordination_mode': 'orchestrated_pipeline',
+        'coordination_mode': 'bounded_feedback_collaboration' if enabled() else 'orchestrated_pipeline',
+        'collaboration_scope': 'graph_verification_and_teacher_key_points' if enabled() else None,
+        'max_revision_rounds': 1 if enabled() else 0,
         'multimodal_scope': 'asr_document_text_scene_ocr',
         'note': ('AI local đọc nguồn tải lên; khái niệm và quan hệ là đề xuất chờ giảng viên duyệt.' if enabled()
                  else 'Chế độ luật cho dữ liệu mẫu; chưa bật ASR/OCR/LLM local.')}

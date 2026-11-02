@@ -1,4 +1,4 @@
-import type { AIConfiguration, ConceptNode, Evidence, Job, Workspace } from './types';
+import type { AIConfiguration, AgentCollaborationTrace, ConceptNode, Evidence, Job, KeyPointsDraft, Workspace } from './types';
 
 /** These selectors describe real workspace data; they never generate new claims. */
 export function uploadFileKind(name: string): 'video' | 'slides' | 'transcript' | null {
@@ -57,6 +57,84 @@ export function buildLessonSummary(workspace: Workspace | null): LessonSummaryRo
 }
 export function latestAnalysis(workspace: Workspace | null): Job | null {
   return workspace?.jobs.find(job => job.workflow === 'analysis' && job.input?.version === workspace.lecture.version) || null;
+}
+export function currentKeyPoints(workspace: Workspace | null): KeyPointsDraft | null {
+  const keyPoints = workspace?.key_points;
+  return keyPoints?.status === 'draft' && keyPoints.source_version === workspace?.lecture.version ? keyPoints : null;
+}
+export function keyPointDraftLabel(keyPoints: KeyPointsDraft | null): string {
+  const deterministicCodeObservation = keyPoints?.method === 'deterministic_python_code_observation' ||
+    keyPoints?.points.some(point => point.method === 'deterministic_python_code_observation');
+  return deterministicCodeObservation ? 'Bản nháp từ cấu trúc mã · Cần đối chiếu' : 'Bản nháp AI · Cần giảng viên đối chiếu';
+}
+export function availableLessonEvidence(workspace: Workspace | null): Evidence[] {
+  if (!workspace) return [];
+  const assets = new Map(workspace.assets.map(asset => [asset.id, asset]));
+  const candidates = [
+    ...workspace.evidence.map(evidence => ({ evidence, keyPoint: false })),
+    ...(currentKeyPoints(workspace)?.points.flatMap(point => point.evidence.map(evidence => ({ evidence, keyPoint: true }))) || []),
+  ];
+  const validLocation = (evidence: Evidence) => {
+    const hasStart = evidence.start !== null && evidence.start !== undefined;
+    const hasEnd = evidence.end !== null && evidence.end !== undefined;
+    if (hasStart && (!Number.isFinite(evidence.start!) || evidence.start! < 0)) return false;
+    if (hasEnd && (!Number.isFinite(evidence.end!) || evidence.end! < 0)) return false;
+    if (hasEnd && !hasStart) return false;
+    if (hasStart && hasEnd && evidence.end! <= evidence.start!) return false;
+    if (hasStart && !hasEnd && evidence.kind !== 'video') return false;
+    if (evidence.kind === 'video' && !hasStart) return false;
+    if (evidence.slide_page != null && (!Number.isInteger(evidence.slide_page) || evidence.slide_page < 1)) return false;
+    if (evidence.section_index != null && (!Number.isInteger(evidence.section_index) || evidence.section_index < 1)) return false;
+    if (evidence.slide_page != null && !workspace.slides.some(slide => slide.page === evidence.slide_page)) return false;
+    if (evidence.section_index != null && !workspace.slides.some(slide => slide.section_index === evidence.section_index)) return false;
+    return true;
+  };
+  const accepted = new Map<string, Evidence>();
+  for (const candidate of candidates) {
+    const { evidence, keyPoint } = candidate;
+    const asset = evidence.asset_id ? assets.get(evidence.asset_id) : null;
+    if (!evidence.valid || !evidence.text?.trim()) continue;
+    if (keyPoint && (evidence.source_version !== workspace.lecture.version || !asset)) continue;
+    if (!keyPoint && evidence.source_version != null && evidence.source_version !== workspace.lecture.version) continue;
+    if (evidence.asset_id && !asset) continue;
+    if (asset && evidence.kind === 'slide' && asset.kind !== 'slides') continue;
+    if (asset && evidence.kind === 'video' && asset.kind !== 'video') continue;
+    if (asset && evidence.kind === 'transcript' && !['transcript', 'video'].includes(asset.kind)) continue;
+    if (evidence.kind === 'video' && (evidence.start == null || !Number.isFinite(evidence.start))) continue;
+    const inferredVideo = !asset && ['transcript', 'video'].includes(evidence.kind)
+      ? workspace.assets.find(candidate => candidate.kind === 'video') : undefined;
+    const duration = asset?.duration_seconds ?? inferredVideo?.duration_seconds;
+    if (duration != null && ((evidence.start != null && evidence.start > duration) || (evidence.end != null && evidence.end > duration))) continue;
+    if (!validLocation(evidence) || accepted.has(evidence.id)) continue;
+    accepted.set(evidence.id, evidence);
+  }
+  return [...accepted.values()];
+}
+export function resolveLessonEvidence(workspace: Workspace | null, evidenceId: string | null | undefined): Evidence | null {
+  if (!evidenceId) return null;
+  return availableLessonEvidence(workspace).find(evidence => evidence.id === evidenceId) || null;
+}
+export function currentCollaborationTraces(workspace: Workspace | null): Array<{ label: string; trace: AgentCollaborationTrace }> {
+  if (!workspace) return [];
+  const traces: Array<{ label: string; trace: AgentCollaborationTrace | null | undefined }> = [
+    { label: 'Bản đồ tri thức', trace: workspace.agent_collaboration },
+    { label: 'Ý chính', trace: currentKeyPoints(workspace)?.collaboration },
+  ];
+  return traces.filter((item): item is { label: string; trace: AgentCollaborationTrace } =>
+    Boolean(item.trace && item.trace.source_version === workspace.lecture.version && item.trace.messages.length));
+}
+export function collaborationMessageLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    proposal: 'Gửi đề xuất', review: 'Gửi lượt kiểm chứng', revision: 'Gửi bản chỉnh sửa',
+    recheck: 'Kiểm tra lại bản chỉnh sửa', review_required: 'Chuyển giảng viên đối chiếu',
+  };
+  return labels[kind] || 'Trao đổi đã ghi nhận';
+}
+export function collaborationRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    knowledge: 'Bước tạo', verification: 'Bước kiểm chứng', orchestrator: 'Điều phối', teacher: 'Giảng viên',
+  };
+  return labels[role] || 'Bước xử lý';
 }
 export function analysisControl(job: Job | null) {
   if (job?.status === 'paused' && job.pause_reason === 'guided_demo') return { action: 'resume', label: guidedNextAction(job).label, message: 'Đã hoàn tất công việc vừa chọn. Demo đang chờ bạn xem kết quả và bấm chạy bước tiếp theo.' } as const;
@@ -120,6 +198,7 @@ export function formatTimestamp(seconds: number | null | undefined): string {
 export function formatEvidenceLabel(evidence: Evidence): string {
   if (evidence.kind === 'slide' && evidence.section_index) return `Phần ${evidence.section_index} của tài liệu`;
   if (evidence.start != null && evidence.end != null) return `${formatTimestamp(evidence.start)} – ${formatTimestamp(evidence.end)}`;
+  if (evidence.kind === 'video' && evidence.start != null) return `Khung hình ${formatTimestamp(evidence.start)}`;
   return evidence.slide_page ? `Slide ${evidence.slide_page}` : 'Xem nguồn học liệu';
 }
 

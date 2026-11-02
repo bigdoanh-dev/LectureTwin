@@ -38,7 +38,7 @@ def migrate_seeded_youtube_samples():
 
         lecture['version'] = int(lecture.get('version', 1)) + 1
         sample_sources(lecture)
-        lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[], coverage=[])
+        lecture.update(analysis_version=None, key_points=None, agent_collaboration=None, source_segments=[], concepts=[], edges=[], evidence=[], findings=[], coverage=[])
         domain.snapshot(lecture, 'youtube_source_updated', 'Thay ghi chú minh họa cũ bằng ghi chú có mốc theo video YouTube BFS/DFS.')
 
         if lecture_id == 'lec-published':
@@ -214,6 +214,31 @@ def get_lecture(lid: str, user=Depends(current_user)):
     return domain.workspace(lecture_access(user, lid), user)
 
 
+@app.post('/api/lectures/{lid}/key-points')
+def regenerate_key_points(lid: str, user=Depends(current_user)):
+    from . import key_points
+    lecture = lecture_access(user, lid, edit=True)
+    if not ai_runtime.enabled():
+        raise HTTPException(422, 'Bật AI local để diễn đạt ý chính từ học liệu đã tải lên.')
+    if any(j['workflow'] == 'analysis' and j['status'] in ('queued', 'running') for j in store.items('jobs', lid)):
+        raise HTTPException(409, 'Chờ phân tích học liệu hoàn tất trước khi tạo ý chính.')
+    version = lecture['version']
+    source_signature = key_points.source_signature(lecture)
+    try:
+        with ai_runtime.track_usage() as usage:
+            result = key_points.generate(lecture)
+    except (ai_runtime.ProviderUnavailable, ValueError) as error:
+        raise HTTPException(422, str(error)) from error
+    with store.LOCK:
+        current = lecture_access(user, lid, edit=True)
+        if current['version'] != version or key_points.source_signature(current) != source_signature:
+            raise HTTPException(409, 'Nguồn đã đổi phiên bản. Mở lại bài giảng trước khi tạo ý chính.')
+        current['key_points'] = result
+        store.put('lectures', current)
+        store.audit(user, 'GENERATE_KEY_POINTS', {'points': len(result['points']), 'version': version, 'model_usage': usage}, lid)
+    return domain.workspace(current, user)
+
+
 def ensure_editable(lecture):
     if lecture['status'] == 'published':
         raise HTTPException(409, 'Tạo bản nháp mới trước khi thay đổi học liệu đã xuất bản')
@@ -226,7 +251,7 @@ def attach_sample(lid: str, user=Depends(current_user)):
     lecture = lecture_access(user, lid, edit=True)
     ensure_editable(lecture)
     sample_sources(lecture)
-    lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[])
+    lecture.update(analysis_version=None, key_points=None, agent_collaboration=None, source_segments=[], concepts=[], edges=[], evidence=[], findings=[])
     domain.snapshot(lecture, 'sample_attached', 'Gắn video YouTube BFS/DFS và ghi chú tiếng Việt biên soạn theo phụ đề tự động; chưa chạy ASR/vision')
     store.audit(user, 'ATTACH_SAMPLE', 'Video YouTube Abdul Bari · BFS/DFS', lid)
     return domain.workspace(lecture, user)
@@ -345,7 +370,7 @@ async def upload(lid: str, file: UploadFile = File(...), kind: str = Form(...), 
     lecture['assets'] = [a for a in lecture['assets'] if a['kind'] != kind] + [asset]
     lecture['version'] += 1
     lecture['planned'] = {'objectives': deepcopy(lecture['objectives']), 'total_minutes': lecture['total_minutes'], 'segments': [], 'origin': 'awaiting_source_review'}
-    lecture.update(analysis_version=None, concepts=[], edges=[], evidence=[], findings=[], coverage=[], guided_demo=False)
+    lecture.update(analysis_version=None, key_points=None, agent_collaboration=None, source_segments=[], concepts=[], edges=[], evidence=[], findings=[], coverage=[], guided_demo=False)
     for key in ('knowledge_method', 'source_segments', 'extraction_report', 'media_report'):
         lecture.pop(key, None)
     domain.snapshot(lecture, 'asset_uploaded', f'Tải {kind}; chờ phân tích nguồn mới')
@@ -476,6 +501,37 @@ def after_review(lecture):
 class Decision(BaseModel):
     decision: Literal['confirm', 'reject']
     note: str = Field(default='', max_length=1000)
+
+
+class TeachingDecision(BaseModel):
+    decision: Literal['confirm', 'reject']
+    note: str = Field(min_length=3, max_length=1000)
+    state_id: str = Field(min_length=64, max_length=64)
+
+
+@app.post('/api/lectures/{lid}/teaching-proposals/{pid}/decision')
+def decide_teaching_proposal(lid: str, pid: str, body: TeachingDecision, user=Depends(current_user)):
+    from . import learner_twin
+    with store.LOCK:
+        lecture = lecture_access(user, lid, edit=True)
+        state = learner_twin.view(lecture, user)
+        if state['state_id'] != body.state_id or state.get('requires_rebase'):
+            raise HTTPException(409, 'Dữ liệu học tập hoặc phiên bản đã đổi. Mở lại đề xuất trước khi duyệt.')
+        proposal = next((p for p in state['adaptive_proposals'] if p['id'] == pid), None)
+        if not proposal:
+            raise HTTPException(404, 'Không có đề xuất phù hợp với dữ liệu hiện tại.')
+        if len(body.note.strip()) < 3:
+            raise HTTPException(422, 'Ghi nhận xét ít nhất 3 ký tự trước khi duyệt phương án.')
+        existing = [d for d in store.items('teaching_decisions', lid) if d.get('state_id') == state['state_id'] and d.get('proposal', {}).get('id') == pid]
+        if existing:
+            raise HTTPException(409, 'Đề xuất đã được quyết định; cần dữ liệu mới để tạo đề xuất tiếp theo.')
+        record = {'id': store.uid('teaching-decision'), 'lecture_id': lid, 'source_version': state['source_version'],
+            'state_id': state['state_id'], 'decision': body.decision, 'proposal': proposal,
+            'reviewed_by': user['id'], 'note': body.note.strip(), 'reviewed_at': store.now()}
+        store.put('teaching_decisions', record)
+        domain.snapshot(lecture, 'teaching_strategy_reviewed', 'Giảng viên đã quyết định phương án ôn nguồn và luyện tập theo bài nộp.')
+        store.audit(user, 'REVIEW_TEACHING_STRATEGY', {'decision_id': record['id'], 'state_id': state['state_id'], 'decision': body.decision}, lid)
+    return domain.workspace(lecture, user)
 
 
 def ensure_reviewable(lecture):
@@ -634,6 +690,11 @@ def submit(aid: str, body: Submission, user=Depends(current_user)):
     result = {'id': store.uid('attempt'), 'assessment_id': aid, 'lecture_id': lecture['id'], 'owner_id': user['id'], 'answers': body.answers,
         'correct_count': correct, 'total': len(feedback), 'score': round(correct / len(feedback) * 100, 1), 'feedback': feedback, 'submitted_at': store.now()}
     store.put('attempts', result)
+    from . import learner_twin
+    class_state = learner_twin.view(lecture, {'id': lecture['owner_id'], 'role': 'teacher'})
+    if class_state.get('state_id'):
+        store.put('learner_states', {'id': class_state['state_id'], 'lecture_id': lecture['id'],
+            'source_version': class_state['source_version'], 'created_at': store.now(), 'state': class_state})
     domain.snapshot(lecture, 'evaluated', 'Có bài nộp mới; tổng hợp kết quả được tính từ bài làm đã lưu')
     store.audit(user, 'SUBMIT_ASSESSMENT', {'assessment_id': aid, 'attempt_id': result['id']}, lecture['id'])
     return result
