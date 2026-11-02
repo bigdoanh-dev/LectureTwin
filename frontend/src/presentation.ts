@@ -142,7 +142,7 @@ export function analysisControl(job: Job | null) {
     case 'needs_review': return { action: 'review', label: 'Duyệt kết quả phân tích', message: 'Đã đọc học liệu và tạo đề xuất. Hệ thống đang chờ giảng viên kiểm tra nguồn, không bị treo. Duyệt kết quả để hoàn tất bước phân tích.' } as const;
     case 'paused': return { action: 'resume', label: 'Tiếp tục phân tích', message: 'Lượt phân tích đang tạm dừng. Bấm Tiếp tục phân tích để chạy tiếp từ các bước đã lưu.' } as const;
     case 'failed': return { action: 'retry', label: 'Thử lại phân tích', message: job.error || 'Lượt phân tích chưa hoàn tất. Bạn có thể thử lại từ bước gặp lỗi.' } as const;
-    case 'queued': case 'running': return { action: 'wait', label: 'Đang phân tích', message: 'Hệ thống đang đọc học liệu và liên kết ý chính với nguồn. Kết quả sẽ cập nhật khi từng bước hoàn tất.' } as const;
+    case 'queued': case 'running': return { action: 'wait', label: 'Đang phân tích', message: 'Hệ thống đang đọc học liệu và liên kết khái niệm với nguồn. Kết quả sẽ cập nhật khi từng bước hoàn tất.' } as const;
     case 'completed': return { action: 'start', label: 'Phân tích lại', message: 'Đã hoàn tất phân tích. Để thử phân bổ lại thời lượng, mở Thử thay đổi bài học; kết quả mô phỏng được tính riêng.' } as const;
     default: return { action: 'start', label: 'Bắt đầu phân tích', message: 'Phân tích tạo đề xuất có dẫn nguồn từ học liệu. Thử thay đổi bài học là bước riêng để so sánh phân bổ thời lượng.' } as const;
   }
@@ -151,7 +151,7 @@ export function guidedNextAction(job: Job | null) {
   if (!job) return { label: 'Đọc học liệu' };
   if (job.status === 'needs_review') return { label: 'Sang bước bạn duyệt' };
   if (job.status === 'failed') return { label: 'Thử lại bước gặp lỗi' };
-  if (job.status === 'paused' && job.checkpoint === 'perception') return { label: 'Tiếp theo: Tìm ý chính' };
+  if (job.status === 'paused' && job.checkpoint === 'perception') return { label: 'Tiếp theo: Tìm khái niệm' };
   if (job.status === 'paused' && job.checkpoint === 'knowledge') return { label: 'Tiếp theo: Đối chiếu nguồn' };
   return { label: 'Tiếp tục xử lý' };
 }
@@ -165,7 +165,7 @@ export function analysisProgress(job: Job | null) {
   const reviewed = verify?.status === 'completed' && Boolean(verify.teacher_reviewed_at);
   return [
     { id: 'read', title: 'Đọc học liệu', status: read?.status || 'idle', detail: read?.status === 'completed' ? `Đã đọc ${readResult?.transcript_segments ?? 0} ghi chú, ${readResult?.document_pages ?? readResult?.slide_pages ?? 0} trang tài liệu và ${readResult?.sampled_frames ?? readResult?.keyframes?.length ?? 0} khung hình video được lấy mẫu.` : 'Đọc thông tin nguồn và các ghi chú được cung cấp.' },
-    { id: 'knowledge', title: 'Tìm ý chính', status: knowledge?.status || 'idle', detail: knowledge?.status === 'completed' ? `Tìm thấy ${knowledge.output?.result?.concept_count ?? 0} ý chính, gắn với ${knowledge.output?.result?.evidence_count ?? 0} liên kết nguồn.` : 'Tìm từ khóa và gắn ý chính với đoạn nguồn tương ứng.' },
+    { id: 'knowledge', title: 'Tìm khái niệm', status: knowledge?.status || 'idle', detail: knowledge?.status === 'completed' ? `Tìm thấy ${knowledge.output?.result?.concept_count ?? 0} khái niệm, gắn với ${knowledge.output?.result?.evidence_count ?? 0} liên kết khái niệm–nguồn.` : 'Tìm khái niệm và gắn với đoạn nguồn tương ứng.' },
     { id: 'verify', title: 'Đối chiếu nguồn', status: verifiedAutomatically ? 'completed' : verify?.status || 'idle', detail: verifiedAutomatically || verify?.status === 'completed' ? 'Đã kiểm tra mốc dẫn chứng và đánh dấu các mục cần bạn xem.' : 'Kiểm tra mốc dẫn chứng và phát hiện mục thiếu nguồn.' },
     { id: 'review', title: 'Bạn duyệt', status: reviewed ? 'completed' : job?.status === 'needs_review' ? 'needs_review' : 'idle', detail: reviewed ? 'Đã lưu quyết định của giảng viên.' : job?.status === 'needs_review' ? 'Đang chờ bạn kiểm tra đề xuất. Hệ thống dừng tại đây để bạn quyết định.' : 'Mở sau khi hệ thống đã tạo đề xuất có dẫn nguồn.' },
   ];
@@ -214,7 +214,7 @@ export function analysisStages(workspace: Workspace | null) {
   const job = latestAnalysis(workspace);
   return [
     { id: 'perception', label: 'Đọc học liệu' },
-    { id: 'knowledge', label: 'Liên kết ý chính' },
+    { id: 'knowledge', label: 'Liên kết khái niệm' },
     { id: 'verification', label: 'Đối chiếu nguồn' },
     { id: 'pedagogical', label: 'Chuẩn bị đề xuất' },
   ].map(stage => ({ ...stage, status: job?.agents?.find(run => run.agent === stage.id)?.status || 'idle' }));

@@ -610,7 +610,7 @@ export const AiWorkspaceView: React.FC = () => {
           {activeTab === 'summary' && (
             <div className="space-y-4">
               {!sections.hasUpload && <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm leading-relaxed text-slate-600">Chưa có kết quả. Hãy tải tệp ở bước 1; hệ thống sẽ xử lý ở bước 2 và gửi đề xuất để bạn duyệt ở bước 3.</div>}
-              {sections.hasUpload && !sections.resultsReady && <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-slate-600">{workflow.running ? 'Đang xử lý học liệu này. Các ý chính sẽ xuất hiện khi có kết quả từ lượt chạy.' : 'Chưa có kết quả cho phiên bản học liệu này. Tiếp tục ở bước 2 trong luồng phía trên.'}</div>}
+              {sections.hasUpload && !sections.resultsReady && <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-slate-600">{workflow.running ? 'Đang xử lý học liệu này. Khái niệm và dẫn chứng sẽ xuất hiện khi có kết quả từ lượt chạy.' : 'Chưa có kết quả cho phiên bản học liệu này. Tiếp tục ở bước 2 trong luồng phía trên.'}</div>}
               {sections.resultsReady && !workflow.running && (
                 <section aria-labelledby="teacher-key-points-title" className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">

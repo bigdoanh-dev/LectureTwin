@@ -37,7 +37,7 @@ import { AnalysisProgress } from '../components/AnalysisProgress';
 const AGENT_GUIDES: Record<string, { label: string; purpose: string; input: string; output: string }> = {
   orchestrator: { label: 'Điều phối', purpose: 'Bắt đầu đúng quy trình, lưu trạng thái và chuyển việc giữa các bước.', input: 'Yêu cầu xử lý và phiên bản bài giảng', output: 'Các bước cần chạy và trạng thái lượt xử lý' },
   perception: { label: 'Đọc nguồn học liệu', purpose: 'Đọc thông tin video cùng các ghi chú đã có mốc thời gian. Với video mẫu, hệ thống không tự nghe hoặc phân tích hình ảnh.', input: 'Video tham khảo và ghi chú theo phụ đề', output: 'Thông tin nguồn và số ghi chú được đọc' },
-  knowledge: { label: 'Tìm và liên kết ý chính', purpose: 'Tìm cụm từ khóa đã định trước trong ghi chú rồi nối ý liên quan với đoạn nguồn.', input: 'Ghi chú có mốc và danh sách khái niệm', output: 'Ý chính, mốc nguồn và mối liên hệ' },
+  knowledge: { label: 'Tìm và liên kết khái niệm', purpose: 'Tìm khái niệm trong nguồn rồi nối với đoạn văn bản tương ứng.', input: 'Ghi chú có mốc và nội dung tài liệu', output: 'Khái niệm, mốc nguồn và mối liên hệ' },
   verification: { label: 'Kiểm tra nguồn', purpose: 'Kiểm tra mốc có nằm trong thời lượng nguồn không và đánh dấu nội dung cần giảng viên xác nhận.', input: 'Ý chính và mốc dẫn chứng', output: 'Danh sách có nguồn, thiếu nguồn hoặc đang chờ duyệt' },
   pedagogical: { label: 'Đối chiếu mục tiêu học tập', purpose: 'Gợi ý khái niệm nào liên quan tới từng mục tiêu; giảng viên vẫn cần xem mức độ phù hợp.', input: 'Mục tiêu và ý chính đã xác nhận', output: 'Bảng đối chiếu mục tiêu học tập' },
   planning: { label: 'Thử phương án bài học', purpose: 'Kiểm tra thời lượng và thứ tự nội dung trong kịch bản, không dự đoán điểm số.', input: 'Thời lượng các phần và thay đổi đề xuất', output: 'Tổng thời gian và điều kiện hợp lệ' },
@@ -218,7 +218,7 @@ export const ExecutionCenterView: React.FC = () => {
     switch (selectedAgentId) {
       case 'orchestrator': return `Đã tạo lượt phân tích cho phiên bản ${selectedResult.version ?? analysisJob?.input?.version ?? 'hiện tại'}.`;
       case 'perception': return `${selectedResult.transcript_segments ?? annotationCount} ghi chú có mốc được đọc; ${selectedResult.slide_pages ?? 0} trang trình chiếu. ${selectedResult.note || 'Bước này chỉ đọc nguồn đã cung cấp.'}`;
-      case 'knowledge': return `Tìm thấy ${selectedResult.concept_count ?? 0} ý chính; gắn ${selectedResult.evidence_count ?? 0} liên kết ý–nguồn và tạo ${selectedResult.edge_count ?? 0} mối liên hệ. ${selectedResult.method || ''}`;
+      case 'knowledge': return `Tìm thấy ${selectedResult.concept_count ?? 0} khái niệm; gắn ${selectedResult.evidence_count ?? 0} liên kết khái niệm–nguồn và tạo ${selectedResult.edge_count ?? 0} mối liên hệ. ${selectedResult.method || ''}`;
       case 'verification': return `Đã rà ${selectedResult.findings?.length ?? findings.length} đề xuất. Các mục có bằng chứng vẫn cần giảng viên xác nhận trước khi dùng.`;
       case 'pedagogical': return `Đã lập bảng đối chiếu cho ${selectedResult.coverage?.length ?? 0} mục tiêu học tập. Đây là gợi ý để giảng viên xem lại.`;
       case 'planning': return selectedResult.feasible === undefined
@@ -441,9 +441,9 @@ export const ExecutionCenterView: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="rounded-xl border border-slate-200 p-3">
-            <div className="text-[11px] font-semibold text-slate-500">Gợi ý ý chính</div>
+            <div className="text-[11px] font-semibold text-slate-500">Khái niệm trong đồ thị</div>
             <div className="mt-1 text-lg font-black text-slate-900">{hasAnalysisResults ? (workspace?.concepts.length ?? 0) : unfinishedAnalysisLabel}</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Đếm số chủ đề có từ khóa khớp với ghi chú nguồn. Đây không phải điểm hiểu bài hay thước đo độ chính xác.</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Đếm số khái niệm được trích từ ghi chú nguồn. Đây không phải điểm hiểu bài hay thước đo độ chính xác.</p>
           </div>
           <div className="rounded-xl border border-slate-200 p-3">
             <div className="text-[11px] font-semibold text-slate-500">Mốc video có liên kết</div>
@@ -553,7 +553,7 @@ export const ExecutionCenterView: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-1.5">
                     <Network className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span className="font-bold text-[12px] text-slate-900 truncate">Tìm ý chính</span>
+                    <span className="font-bold text-[12px] text-slate-900 truncate">Tìm khái niệm</span>
                   </div>
                 </div>
 
@@ -844,9 +844,9 @@ export const ExecutionCenterView: React.FC = () => {
                       <p className="leading-relaxed">{selectedResultSummary}</p>
                       {selectedAgentId === 'knowledge' && selectedResult && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.concept_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">ý có từ khóa khớp</div></div>
-                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.evidence_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">liên kết ý–nguồn</div></div>
-                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.edge_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">mối liên hệ giữa ý</div></div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.concept_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">khái niệm được trích</div></div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.evidence_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">liên kết khái niệm–nguồn</div></div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2"><strong>{selectedResult.edge_count ?? 0}</strong><div className="text-[10px] text-slate-500 mt-0.5">mối liên hệ giữa khái niệm</div></div>
                         </div>
                       )}
                       {selectedAgentId === 'tutor' && selectedResult.citations?.length > 0 && <p className="text-slate-500">Số đoạn nguồn được trích: {selectedResult.citations.length}. Câu trả lời dùng nội dung đã xác nhận.</p>}

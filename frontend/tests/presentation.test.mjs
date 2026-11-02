@@ -40,7 +40,7 @@ test('Upload flow identifies supported files without treating arbitrary text as 
 });
 test('Guided controls advance only to the next stored checkpoint', () => {
   assert.equal(guidedNextAction(null).label, 'Đọc học liệu');
-  assert.match(guidedNextAction({status:'paused',checkpoint:'perception'}).label,/Tìm ý chính/);
+  assert.match(guidedNextAction({status:'paused',checkpoint:'perception'}).label,/Tìm khái niệm/);
   assert.match(guidedNextAction({status:'paused',checkpoint:'knowledge'}).label,/Đối chiếu nguồn/);
   assert.equal(guidedNextAction({status:'needs_review'}).label, 'Sang bước bạn duyệt');
   const control=analysisControl({status:'paused',pause_reason:'guided_demo',checkpoint:'knowledge'});
@@ -55,6 +55,8 @@ test('Step progress uses actual tool completion and never treats review waiting 
   job.agents=[{agent:'perception',status:'completed',output:{result:{transcript_segments:8,document_pages:2,sampled_frames:3}}},{agent:'knowledge',status:'completed',output:{result:{concept_count:6,evidence_count:12}}},{agent:'verification',status:'needs_review',tools:[{name:'validate_evidence',status:'completed'}]}];
   assert.deepEqual(analysisProgress(job).map(s=>s.status),['completed','completed','completed','needs_review']);
   assert.match(analysisProgress(job)[0].detail,/8 ghi chú, 2 trang tài liệu và 3 khung hình video/);
+  assert.match(analysisProgress(job)[1].detail,/6 khái niệm.*liên kết khái niệm–nguồn/);
+  assert.doesNotMatch(analysisProgress(job)[1].detail,/ý chính/);
   job.status='completed';job.agents[2].status='completed';
   assert.equal(analysisProgress(job)[3].status,'idle');
   job.agents[2].teacher_reviewed_at='2026-10-30T00:00:00Z';
